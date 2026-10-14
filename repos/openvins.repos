@@ -1,0 +1,6 @@
+# Not built yet (phase 3, first backend). Becomes the `openvins` Dockerfile stage.
+repositories:
+  open_vins:
+    type: git
+    url: https://github.com/rpng/open_vins.git
+    version: v2.7

@@ -1,0 +1,84 @@
+# mullet-localization on the drone. From here:
+#   cp .env.example .env                        # image tag, ROS domain, sensors present
+#   docker compose pull && docker compose up -d # sensors, started on boot
+#   docker compose --profile viz up -d          # + foxglove_bridge on ws://<drone>:8765
+#   docker compose run --rm record              # mcap bag into ~/flights/<UTC>_sensors, Ctrl-C stops
+#   docker compose --profile localization up -d # + px4_ev_bridge (a backend too, once one exists)
+# config/ is mounted: edit it, then `docker compose restart <service>`.
+x-ros: &ros
+  image: ${LOCALIZATION_IMAGE:-ghcr.io/skymule-ai/mullet-localization}:${IMAGE_TAG:?set IMAGE_TAG in .env}
+  network_mode: host
+  ipc: host
+  restart: unless-stopped
+  environment:
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:?set ROS_DOMAIN_ID in .env}
+    RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+    # Same as mullet-core and the paddock. ponytail: images go through UDP loopback; enable SHM
+    # for these containers if phase 0 shows the copy costs too much CPU.
+    FASTDDS_BUILTIN_TRANSPORTS: UDPv4
+  volumes:
+    - ./config:/config:ro
+
+services:
+  sensors:
+    <<: *ros
+    build:
+      context: .
+      target: common
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-ghcr.io/skymule-ai/mullet-ros2-base:v0.5.0}
+    container_name: mullet-sensors
+    volumes:
+      - ./config:/config:ro
+      # Mounted, not passed as devices: the D435i re-enumerates on reset and gets a new node.
+      - /dev/bus/usb:/dev/bus/usb
+    device_cgroup_rules:
+      - "c 189:* rmw"  # USB devices
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 launch mullet_localization sensors.launch.py
+        d435i:=${D435I:-true} mid360:=${MID360:-true}
+
+  viz:
+    <<: *ros
+    container_name: mullet-viz
+    profiles: [viz]
+    # Sends a topic only while a client subscribes to it. Raw Mid-360 clouds are about 5 MB/s.
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=${FOXGLOVE_PORT:-8765}
+
+  record:
+    <<: *ros
+    container_name: mullet-record
+    profiles: [record]
+    restart: "no"
+    volumes:
+      - ${HOME}/flights:/flights
+    # Sensors, localization, PX4's own estimate and raw IMU/GPS: everything the offline evaluation
+    # replays backends against.
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_sensors
+        -e '.*/(sensors|localization)/.*|.*/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_gps_position|sensor_combined)|/tf|/tf_static'
+
+  ev_bridge:
+    <<: *ros
+    container_name: mullet-ev-bridge
+    profiles: [localization]
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 run mullet_localization px4_ev_bridge --ros-args
+        --params-file /config/ev_bridge.yaml -p publish_to_px4:=${PUBLISH_TO_PX4:-false}

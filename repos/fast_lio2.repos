@@ -1,0 +1,6 @@
+# Placeholder (phase 5). Reads livox_ros_driver2/CustomMsg: set xfer_format 1 in mid360.yaml.
+repositories:
+  fast_lio:
+    type: git
+    url: https://github.com/hku-mars/FAST_LIO.git
+    version: ROS2

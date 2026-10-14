@@ -1,0 +1,10 @@
+# px4_ev_bridge. Shadow mode vs PX4 is PUBLISH_TO_PX4 in .env, not here.
+/**:
+  ros__parameters:
+    px4_topic: /fmu/in/vehicle_visual_odometry
+    # Pose of base_link (PX4's body frame, FLU here) in the running backend's body frame (for
+    # OpenVINS and VINS-Fusion the D435i IMU, for Isaac VSLAM its base frame). Identity is a
+    # placeholder: set it from Kalibr + CAD (phase 2) before PUBLISH_TO_PX4=true. The lever arm is
+    # applied here, so keep EKF2_EV_POS_X/Y/Z at 0.
+    body_t_base: [0.0, 0.0, 0.0]
+    body_q_base: [1.0, 0.0, 0.0, 0.0]  # w, x, y, z

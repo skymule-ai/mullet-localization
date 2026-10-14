@@ -1,0 +1,4 @@
+# Not built yet (phase 3). Upstream HKUST-Aerial-Robotics/VINS-Fusion is ROS 1 only: phase 0 picks
+# one ROS 2 fork that builds on Jazzy with the base image's OpenCV and Ceres, and pins it here.
+# Note: VINS-Fusion publishes its twist in the world frame, px4_ev_bridge expects the body frame.
+repositories: {}

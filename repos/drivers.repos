@@ -1,0 +1,11 @@
+repositories:
+  realsense-ros:
+    type: git
+    url: https://github.com/IntelRealSense/realsense-ros.git
+    # Needs librealsense 2.59: keep LIBREALSENSE_VERSION in the Dockerfile in step.
+    version: 4.59.1
+  livox_ros_driver2:
+    type: git
+    url: https://github.com/Livox-SDK/livox_ros_driver2.git
+    # First release with Jazzy support (DISTRO_ROS=jazzy). Needs Livox-SDK2, see the Dockerfile.
+    version: 1.2.6

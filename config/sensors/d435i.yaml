@@ -1,0 +1,19 @@
+# realsense2_camera (4.59) for VIO: infra stereo with the IR emitter off (its dot pattern breaks
+# feature tracking) plus the IMU. No colour, no depth. Edit, then `docker compose restart sensors`.
+/**:
+  ros__parameters:
+    camera_name: d435i
+    enable_color: false
+    enable_depth: false
+    enable_infra1: true
+    enable_infra2: true
+    # 640x480 keeps the bag near 18 MB/s; 848x480 is the D435's native depth resolution.
+    depth_module.infra_profile: 640x480x30
+    depth_module.emitter_enabled: 0
+    enable_gyro: true
+    enable_accel: true
+    gyro_fps: 200
+    accel_fps: 250
+    # One /imu topic at the gyro rate, accel linearly interpolated (what OpenVINS/VINS expect).
+    unite_imu_method: 2
+    publish_tf: true
