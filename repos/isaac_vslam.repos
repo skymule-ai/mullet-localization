@@ -1,3 +1,0 @@
-# Not built yet (phase 3). Phase 0 spike first: pick the isaac_ros_visual_slam release that supports
-# ROS 2 Jazzy on Orin with JetPack 6.2, or run NVIDIA's container instead. Releases: v4.x, v5.0-0.
-repositories: {}

@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>mullet_localization</name>
-  <version>0.1.0</version>
-  <description>Sensor launch and the PX4 external-vision bridge for the Mullet localization backends.</description>
+  <version>0.2.0</version>
+  <description>The PX4 external-vision bridge for the Mullet localization backends.</description>
   <maintainer email="your_email@example.com">Skymule-AI</maintainer>
   <license>Apache 2.0</license>
 
@@ -11,9 +11,9 @@
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>px4_msgs</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>launch_ros</exec_depend>
-  <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>livox_ros_driver2</exec_depend>
+  <!-- The record service runs from this image. -->
+  <exec_depend>ros2bag</exec_depend>
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

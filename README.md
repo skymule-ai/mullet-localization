@@ -1,111 +1,112 @@
 # mullet-localization
 
-Onboard localization for Mullet drones: the sensor drivers, one estimator backend at a time, and
-the bridge that feeds the estimate to PX4's EKF2 as external vision. Docker images built on
-[mullet_ros_base](https://github.com/skymule-ai/mullet_ros_base) (ROS 2 Jazzy, PX4 1.17, Orin Nano).
+Localization on a Mullet drone, as one Compose project. The drivers and estimators are
+built and versioned in their own repos; this one pins which images a drone runs, holds that
+drone's sensor configs and calibration, and adds the bridge that feeds the estimate to PX4's
+EKF2 as external vision.
+
+| Repo | Images | Role |
+| --- | --- | --- |
+| [mullet-drivers](https://github.com/skymule-ai/mullet-drivers) | `mullet-drivers-{realsense,livox,viz}` | D435i, Mid-360S, RViz / foxglove_bridge |
+| [mullet-vio](https://github.com/skymule-ai/mullet-vio) | `mullet-vio-openvins` (VINS-Fusion, Isaac VSLAM later) | visual-inertial odometry |
+| [mullet-lio](https://github.com/skymule-ai/mullet-lio) | `mullet-lio` (FAST-LIO2, FAST-LIVO2 later) | lidar-inertial odometry |
+| this repo | `mullet-localization` | `px4_ev_bridge`, `ros2 bag` |
+
+All of them build `FROM` [mullet-base](https://github.com/skymule-ai/mullet-base)
+`v0.5.0` (ROS 2 Jazzy, px4_msgs 1.17), like mullet-core.
 
 ```text
-sensors ──► /sensors/d435i/...  /sensors/mid360/...        always on, whatever backend runs
-   │
-backend ──► localization/odometry (nav_msgs/Odometry)      exactly one; every backend remaps here
-   │
-px4_ev_bridge ──► localization/vehicle_odometry            shadow mode (default)
-              └─► /fmu/in/vehicle_visual_odometry          PUBLISH_TO_PX4=true
+realsense ──► /uav0/d435i/...                     livox ──► /livox/lidar, /livox/imu
+     │
+openvins ──► /uav0/openvins/odomimu (nav_msgs/Odometry)       one estimator at a time
+     │
+ev_bridge ──► /localization/vehicle_odometry                 shadow mode (default)
+          └─► /fmu/in/vehicle_visual_odometry               PUBLISH_TO_PX4=true
 ```
 
-The bridge is the only `/fmu/in` writer outside mullet_core, and it writes only that topic. Mission
-frameworks still never publish `/fmu/in/*`.
-
-## Backends
-
-Which one flies is decided on recorded flights: every backend replays the same bags and is scored
-against PX4's GPS estimate (`evo` ATE/RPE), plus CPU/GPU load and resets.
-
-| Backend | Sensors | Status |
-| --- | --- | --- |
-| OpenVINS | D435i infra stereo + IMU | next (phase 3) |
-| Isaac ROS Visual SLAM | D435i infra stereo + IMU, GPU | after a compatibility spike: Jazzy on Orin JetPack 6.2 |
-| VINS-Fusion | D435i infra stereo + IMU | ROS 2 fork to pick and pin |
-| FAST-LIO2 | Mid-360 + its IMU | placeholder |
-| FAST-LIVO2 | Mid-360 + D435i | placeholder, upstream is ROS 1 |
-
-`repos/<backend>.repos` holds each one's sources; each becomes a Dockerfile stage `FROM common`.
-
-## Sensors
-
-| Sensor | Link | Topics |
-| --- | --- | --- |
-| RealSense D435i | USB 3 | `/sensors/d435i/{infra1,infra2}/image_rect_raw` 30 Hz, `/sensors/d435i/imu` 200 Hz |
-| Livox Mid-360 | USB-Ethernet adapter | `/sensors/mid360/points` 10 Hz, `/sensors/mid360/imu` 200 Hz |
-
-Settings live in `config/sensors/`. The D435i runs infra stereo with the IR emitter off (its dots
-break feature tracking) and one IMU topic interpolated to the gyro rate. librealsense uses the
-RSUSB backend, so the Jetson kernel needs no patches.
-
-The Mid-360 is on its own subnet, separate from the onboard port (bench SSH). One-time host setup
-on the Orin, with the adapter's interface name from `ip -br link`:
-
-```bash
-sudo nmcli con add type ethernet ifname <usb-eth-if> con-name mid360 ipv4.method manual ipv4.addresses 192.168.1.5/24
-```
-
-The lidar's own IP is `192.168.1.1XX`, where XX are the last two digits of its serial number. Put
-it in `config/sensors/MID360_config.json` (`lidar_configs[0].ip`). A wrong lidar IP means no data
-and no error. `bind failed` / `Init lds lidar fail!` in the log means no interface holds the host
-IP (`192.168.1.5`).
+The bridge is the only `/fmu/in` writer outside mullet_core, and it writes only that topic.
+Mission frameworks still never publish `/fmu/in/*`.
 
 ## On the drone
 
 ```bash
 git clone git@github.com:skymule-ai/mullet-localization.git && cd mullet-localization
-cp .env.example .env              # IMAGE_TAG (immutable on aircraft), ROS_DOMAIN_ID, sensors present
-docker compose pull && docker compose up -d                   # sensors, on boot
-scripts/test-on-orin.sh sha-<commit>                          # sensor topic rates
-docker compose --profile viz up -d                            # foxglove_bridge on :8765
-docker compose run --rm record                                # bag, Ctrl-C to stop
-docker compose --profile localization up -d                   # px4_ev_bridge (+ backend)
+cp .env.example .env     # ROS_DOMAIN_ID, COMPOSE_PROFILES, image tags (immutable on aircraft)
+docker compose pull && docker compose up -d
+scripts/test-on-orin.sh  # topic rates of the running stack
+docker compose run --rm record                 # bag into ~/flights/<UTC>_localization
+docker compose run -d --rm --name loc-record record  # same, detached: survives SSH drops
+docker kill -s INT loc-record                  # stops it, closes the bag; the container removes itself
 ```
 
-`config/` is mounted: edit it, then `docker compose restart <service>`. Never restart during a
-flight.
+`COMPOSE_PROFILES` picks the stack: `openvins` (D435i + OpenVINS + bridge), plus `livox` once the
+Mid-360S is wired and `foxglove` for the ground-station view (Lichtblick or Foxglove at
+`ws://<drone-ip>:8765`). Switching estimator means another profile and `ODOMETRY_TOPIC`; the
+bridge, the recorder and PX4 do not change.
 
-**Visualization.** Open [Lichtblick](https://github.com/lichtblick-suite/lichtblick) (or Foxglove)
-on the laptop and connect to `ws://<drone-ip>:8765`. The bridge sends only the topics a panel
-subscribes to. A raw Mid-360 cloud is about 5 MB/s over WiFi.
+`config/` is mounted, so tuning needs no rebuild: `docker compose restart <service>`. Never during
+a flight. Pulling the drone's images needs a GHCR login with `read:packages`.
 
-**Recording.** `~/flights/<UTC>_sensors/` (mcap): sensors, `localization/*`, PX4 odometry, local
-position, GPS, IMU, TF. About 20 MB/s with both sensors, so record to NVMe.
+## This drone's configuration
+
+| File | What |
+| --- | --- |
+| `config/realsense/d435i.yaml` | infra stereo 848x480@30, emitter off (`emitter_enabled: 0`, an integer), IMU 200 Hz united |
+| `config/livox/MID360s_config.json` | Mid-360S at 192.168.1.104, host 192.168.1.50 (USB-Ethernet adapter) |
+| `config/openvins/` | OpenVINS estimator and Kalibr cam-IMU calibration (848x480) |
+| `config/ev_bridge.yaml` | pose of base_link in the estimator's body frame (D435i IMU for OpenVINS) |
+
+The defaults in mullet-drivers and mullet-vio are examples. These files are what this drone flies
+with: change them here.
+
+## D435i infrared projector
+
+Be careful with this one: it silently ruins VIO.
+
+- **What it does:** projects a fixed infrared dot pattern so stereo depth works on blank surfaces. Both
+  infrared cameras see the dots.
+- **Why it matters for VIO:** the dots move with the camera, and OpenVINS tracks them as if they were
+  fixed to the scene. Indoors, near walls and on stairs this means drift and lost tracking (the
+  2026-10-16 office walk drifted 4.5% with it on, 1.4% off). Outdoors, sunlight mostly washes it out.
+- **Off** whenever VIO uses the infrared images. That is our default.
+- **On** only for depth or point clouds on texture-poor surfaces, without VIO on the same images.
+  Alternating frames (`depth_module.emitter_on_off`) needs VIO fed only the projector-off frames.
+- **Setting:** `depth_module.emitter_enabled: 0` in `config/realsense/d435i.yaml` (0 off, 1 on, 2 auto).
+  It must be an **integer**: `false` is rejected with only a WARN, and the projector stays on.
+- **Check:**
+  - `ros2 param get /uav0/d435i depth_module.emitter_enabled` says `Integer value is: 0`;
+  - `scripts/test-on-orin.sh` prints any setting the driver rejected;
+  - the infrared image shows no regular grid of white dots on nearby surfaces.
 
 ## PX4 external vision
 
-The bridge sends base_link's pose in world FRD (`POSE_FRAME_FRD`, arbitrary heading), its velocity
-in the same frame and covariance-derived variances. The estimator-to-base_link extrinsic is in
-`config/ev_bridge.yaml`: identity until calibration (Kalibr + CAD). It also applies the lever arm.
+The bridge sends base_link's pose in world FRD (`POSE_FRAME_FRD`, arbitrary heading), its
+velocity in the same frame and covariance-derived variances. The extrinsic in
+`config/ev_bridge.yaml` is identity until measured (Kalibr + CAD); it also applies the lever arm.
+
+The PX4 parameters for vision and the bridge mode (`PUBLISH_TO_PX4`) are set together by a profile in
+[mullet-px4](https://github.com/skymule-ai/mullet-px4) (`scripts/set-profile.py outdoor|outdoor-vio|indoor`).
+Change them there, not by hand. For reference:
 
 | Param | Value |
 | --- | --- |
-| `EKF2_EV_CTRL` | `0` in shadow mode; then horizontal + vertical position + velocity (+ yaw) |
+| `EKF2_EV_CTRL` | `0` in shadow mode (`outdoor`); `5` position + velocity (`outdoor-vio`); `13` + yaw (`indoor`) |
 | `EKF2_EV_DELAY` | measured: the estimator's latency against the IMU |
 | `EKF2_EV_NOISE_MD` | `0`: reported variances, parameters as the lower bound |
 | `EKF2_EV_POS_X/Y/Z` | `0`: the bridge already applies the lever arm |
 | `EKF2_HGT_REF` | stays on baro/GPS until EV is trusted |
 | `UXRCE_DDS_SYNCT` | `1` (default): PX4 converts the bridge's ROS timestamps |
 
-Order: shadow flight (recorded, not fused) → fused with GPS on → GPS denied. Without GPS, the
-paddock map has no global position unless the EKF origin is set.
+Order: shadow flight (recorded, not fused) → fused with GPS on → GPS denied. Which estimator wins
+is decided offline: replay the same bags through each, score against PX4's GPS estimate (`evo`
+ATE/RPE), plus CPU/GPU load and resets.
 
 ## Build
 
 CI (`.github/workflows/build-and-push.yml`) builds `linux/arm64` and pushes
-`ghcr.io/skymule-ai/mullet-localization:{sha-<commit>,<branch>,<tag>}`, the same flow as
-mullet_ros_base. The image build runs `colcon test`. The frame conversion tests alone:
+`ghcr.io/skymule-ai/mullet-localization:{sha-<commit>,<branch>,<tag>}`. The image build runs
+`colcon test`; the frame-conversion tests alone:
 
 ```bash
 cd mullet_localization && python3 -m pytest test/
 ```
-
-## Later
-
-The drivers live here until a second consumer appears. Once obstacle avoidance or perception needs
-the D435i or the Mid-360 voxel map, move the `sensors` service, `repos/drivers.repos` and
-`config/sensors/` to a `mullet-sensors` repo and build this image `FROM` it.
