@@ -1,0 +1,36 @@
+%YAML:1.0
+# mullet1's D435i, factory calibration read from the driver on 2026-10-16: intrinsics from
+# infra{1,2}/camera_info (image_rect_raw is rectified, so no distortion), the IMU's pose from TF
+# (imu_optical_frame in infra{1,2}_optical_frame), baseline 50.005 mm from infra2's P.
+# ponytail: factory values and no time offset; replace with a Kalibr run on this camera.
+# Only valid at 848x480 (config/realsense/d435i.yaml).
+
+cam0:
+  T_cam_imu:
+    - [1.0, 0.0, 0.0, 0.006]
+    - [0.0, 1.0, 0.0, -0.005]
+    - [0.0, 0.0, 1.0, -0.012]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [424.5499, 424.5499, 426.5933, 244.5586]  # fu, fv, pu, pv
+  resolution: [848, 480]
+  rostopic: /uav0/d435i/infra1/image_rect_raw
+  timeshift_cam_imu: 0.0
+
+cam1:
+  T_cam_imu:
+    - [1.0, 0.0, 0.0, -0.044005]
+    - [0.0, 1.0, 0.0, -0.005]
+    - [0.0, 0.0, 1.0, -0.012]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [424.5499, 424.5499, 426.5933, 244.5586]
+  resolution: [848, 480]
+  rostopic: /uav0/d435i/infra2/image_rect_raw
+  timeshift_cam_imu: 0.0

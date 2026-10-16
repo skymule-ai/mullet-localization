@@ -1,0 +1,19 @@
+# D435i for VIO on this drone: infra stereo + IMU only. Flat mapping (rs_launch.py
+# config_file), not ros__parameters. Mounted into the mullet-drivers-realsense image.
+# Infra must stay 848x480: config/openvins/kalibr_imucam_chain.yaml is
+# calibrated at that resolution.
+enable_color: false
+enable_depth: false
+enable_infra1: true
+enable_infra2: true
+depth_module.infra_profile: 848x480x30
+# The IR dot pattern breaks feature tracking.
+depth_module.emitter_enabled: 0  # 0 off, 1 on, 2 auto. An integer: the driver rejects false and leaves it on
+enable_accel: true
+enable_gyro: true
+# D435i (FW 5.15) offers accel 100/200/400 Hz and gyro 200/400 Hz.
+accel_fps: 200
+gyro_fps: 200
+# One imu topic at the gyro rate, accel interpolated: what OpenVINS reads.
+unite_imu_method: 2
+diagnostics_period: 1.0

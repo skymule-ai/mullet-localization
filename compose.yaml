@@ -1,80 +1,84 @@
-# mullet-localization on the drone. From here:
-#   cp .env.example .env                        # image tag, ROS domain, sensors present
-#   docker compose pull && docker compose up -d # sensors, started on boot
-#   docker compose --profile viz up -d          # + foxglove_bridge on ws://<drone>:8765
-#   docker compose run --rm record              # mcap bag into ~/flights/<UTC>_sensors, Ctrl-C stops
-#   docker compose --profile localization up -d # + px4_ev_bridge (a backend too, once one exists)
-# config/ is mounted: edit it, then `docker compose restart <service>`.
+# Localization on one drone. Pins the images built by mullet-drivers, mullet-vio (and later
+# mullet-lio), holds this drone's sensor configs and calibration (config/), and adds the PX4
+# bridge and recording. From here:
+#   cp .env.example .env                # tags, ROS domain, COMPOSE_PROFILES (which stack)
+#   docker compose pull && docker compose up -d
+#   docker compose run --rm record      # mcap bag into ~/flights/<UTC>_localization, Ctrl-C stops
+#   docker compose run -d --rm --name loc-record record   # detached (survives SSH drops);
+#   docker kill -s INT loc-record       # stops it and closes the bag
+# config/ is mounted: edit it, then `docker compose restart <service>`. Never during a flight.
+name: mullet-localization
+
 x-ros: &ros
-  image: ${LOCALIZATION_IMAGE:-ghcr.io/skymule-ai/mullet-localization}:${IMAGE_TAG:?set IMAGE_TAG in .env}
   network_mode: host
   ipc: host
   restart: unless-stopped
   environment:
     ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:?set ROS_DOMAIN_ID in .env}
     RMW_IMPLEMENTATION: rmw_fastrtps_cpp
-    # Same as mullet-core and the paddock. ponytail: images go through UDP loopback; enable SHM
-    # for these containers if phase 0 shows the copy costs too much CPU.
+    # Same as mullet-core and the paddock. ponytail: images go through UDP loopback; enable
+    # SHM for these containers if the copy shows up in the Orin's CPU budget.
     FASTDDS_BUILTIN_TRANSPORTS: UDPv4
-  volumes:
-    - ./config:/config:ro
+    NVIDIA_VISIBLE_DEVICES: all
+    NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
 services:
-  sensors:
+  # ── Sensors (mullet-drivers) ─────────────────────────────────────────────────
+  realsense:  # /uav0/d435i/{infra1,infra2}/image_rect_raw, /uav0/d435i/imu
     <<: *ros
-    build:
-      context: .
-      target: common
-      args:
-        BASE_IMAGE: ${BASE_IMAGE:-ghcr.io/skymule-ai/mullet-ros2-base:v0.5.0}
-    container_name: mullet-sensors
-    volumes:
-      - ./config:/config:ro
-      # Mounted, not passed as devices: the D435i re-enumerates on reset and gets a new node.
-      - /dev/bus/usb:/dev/bus/usb
+    profiles: [realsense, openvins]
+    image: ghcr.io/skymule-ai/mullet-drivers-realsense:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
+    runtime: nvidia
+    # Mounted, not mapped as a device: the D435i re-enumerates on reset.
     device_cgroup_rules:
       - "c 189:* rmw"  # USB devices
-    command:
-      - bash
-      - -c
-      - >-
-        source /opt/mullet_ws/install/setup.bash &&
-        exec ros2 launch mullet_localization sensors.launch.py
-        d435i:=${D435I:-true} mid360:=${MID360:-true}
-
-  viz:
-    <<: *ros
-    container_name: mullet-viz
-    profiles: [viz]
-    # Sends a topic only while a client subscribes to it. Raw Mid-360 clouds are about 5 MB/s.
-    command:
-      - bash
-      - -c
-      - >-
-        source /opt/mullet_ws/install/setup.bash &&
-        exec ros2 launch foxglove_bridge foxglove_bridge_launch.xml port:=${FOXGLOVE_PORT:-8765}
-
-  record:
-    <<: *ros
-    container_name: mullet-record
-    profiles: [record]
-    restart: "no"
     volumes:
-      - ${HOME}/flights:/flights
-    # Sensors, localization, PX4's own estimate and raw IMU/GPS: everything the offline evaluation
-    # replays backends against.
+      - ./config/realsense:/config:ro
+      - /dev/bus/usb:/dev/bus/usb
     command:
-      - bash
-      - -c
-      - >-
-        source /opt/mullet_ws/install/setup.bash &&
-        exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_sensors
-        -e '.*/(sensors|localization)/.*|.*/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_gps_position|sensor_combined)|/tf|/tf_static'
+      - ros2
+      - launch
+      - realsense2_camera
+      - rs_launch.py
+      - config_file:=/config/d435i.yaml
+      - camera_namespace:=uav0
+      - camera_name:=d435i
+      - tf_prefix:=uav0/d435i
 
+  livox:  # /livox/lidar, /livox/imu
+    <<: *ros
+    profiles: [livox]
+    image: ghcr.io/skymule-ai/mullet-drivers-livox:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
+    runtime: nvidia
+    volumes:
+      - ./config/livox:/config:ro
+
+  # ── Estimators (mullet-vio, mullet-lio): one at a time ───────────────────────
+  openvins:  # /uav0/openvins/odomimu
+    <<: *ros
+    profiles: [openvins]
+    image: ghcr.io/skymule-ai/mullet-vio-openvins:${VIO_TAG:?set VIO_TAG in .env}
+    runtime: nvidia
+    volumes:
+      - ./config/openvins:/config:ro
+    command:
+      - ros2
+      - launch
+      - ov_msckf
+      - subscribe.launch.py
+      - config_path:=/config/estimator_config.yaml
+      - namespace:=uav0/openvins
+      - rviz_enable:=false
+
+  # ── PX4 bridge, recording, ground-station view ───────────────────────────────
+  # Runs with whichever estimator is up; ODOMETRY_TOPIC names its output. Shadow mode unless
+  # PUBLISH_TO_PX4=true.
   ev_bridge:
     <<: *ros
-    container_name: mullet-ev-bridge
-    profiles: [localization]
+    profiles: [openvins]
+    image: ghcr.io/skymule-ai/mullet-localization:${LOCALIZATION_TAG:?set LOCALIZATION_TAG in .env}
+    volumes:
+      - ./config:/config:ro
     command:
       - bash
       - -c
@@ -82,3 +86,29 @@ services:
         source /opt/mullet_ws/install/setup.bash &&
         exec ros2 run mullet_localization px4_ev_bridge --ros-args
         --params-file /config/ev_bridge.yaml -p publish_to_px4:=${PUBLISH_TO_PX4:-false}
+        -r localization/odometry:=${ODOMETRY_TOPIC:-/uav0/openvins/odomimu}
+
+  record:
+    <<: *ros
+    profiles: [record]
+    image: ghcr.io/skymule-ai/mullet-localization:${LOCALIZATION_TAG:?set LOCALIZATION_TAG in .env}
+    restart: "no"
+    volumes:
+      - ${HOME}/flights:/flights
+    # Sensors, estimator output (not OpenVINS's debug images and clouds: ~4x the bag size, and
+    # the disk load dropped infra frames), the bridge's message in shadow or fused mode, PX4's
+    # estimate (local, global, which aiding sources it fuses), IMU and raw GPS: what the offline
+    # evaluation replays every backend against.
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_localization
+        -e '/uav0/d435i/.*|/uav0/openvins/(odomimu|poseimu)|/livox/.*|/localization/.*|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf|/tf_static'
+
+  foxglove:  # ws://<drone>:8765 for Lichtblick / Foxglove on the ground station
+    <<: *ros
+    profiles: [foxglove]
+    image: ghcr.io/skymule-ai/mullet-drivers-viz:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
+    command: [ros2, launch, foxglove_bridge, foxglove_bridge_launch.xml, port:=8765]
