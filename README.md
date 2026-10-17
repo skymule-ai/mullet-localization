@@ -13,7 +13,7 @@ EKF2 as external vision.
 | this repo | `mullet-localization` | `px4_ev_bridge`, `ros2 bag` |
 
 All of them build `FROM` [mullet-base](https://github.com/skymule-ai/mullet-base)
-`v0.5.0` (ROS 2 Jazzy, px4_msgs 1.17), like mullet-core.
+`v0.5.1` (ROS 2 Jazzy, px4_msgs 1.17), like mullet-core.
 
 ```text
 realsense ──► /uav0/d435i/...                     livox ──► /livox/lidar, /livox/imu

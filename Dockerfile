@@ -1,8 +1,8 @@
-# px4_ev_bridge (and ros2 bag for the record service) on mullet-ros2-base (ROS 2 Jazzy,
+# px4_ev_bridge (and ros2 bag for the record service) on mullet-base (ROS 2 Jazzy,
 # px4_msgs release/1.17). Drivers and estimators are built by mullet-drivers, mullet-vio
 # and mullet-lio; this repo only composes their images. Tests run at build time, so a red
 # test means no image.
-ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-ros2-base:v0.5.0
+ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-base:v0.5.1
 FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 WORKDIR /opt/mullet_ws
