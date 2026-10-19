@@ -5,7 +5,7 @@
 ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-base:v0.5.1
 # livox_ros_driver2 from the driver image, so the recorder and `ros2 topic hz` can subscribe to the
 # CustomMsg /livox/lidar with the driver's exact type. Same base release as BASE_IMAGE.
-ARG LIVOX_IMAGE=ghcr.io/skymule-ai/mullet-drivers-livox:sha-29ab1e8
+ARG LIVOX_IMAGE=ghcr.io/skymule-ai/mullet-drivers-livox:sha-8d0563c
 FROM ${LIVOX_IMAGE} AS livox
 
 FROM ${BASE_IMAGE}

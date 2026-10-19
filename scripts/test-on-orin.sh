@@ -23,14 +23,7 @@ for topic in /uav0/d435i/infra1/image_rect_raw /uav0/d435i/infra2/image_rect_raw
   echo "$topic ${rate:-NO DATA}"
 done
 
-# /livox/imu stamps must be ROS time: within ~0.5 s (the echo itself takes ~0.2 s). Catches a wrong
-# clock, not a missing PTP sync (unsynced, the driver stamps on arrival, also ROS time).
+# The MID-360's own report of its gPTP sync (time_sync_type 1, offset in us); exits 1 when unsynced.
 if docker compose ps --services --status running | grep -qx livox; then
-  docker compose run --rm --no-deps -T ev_bridge bash -c '
-    source /opt/mullet_ws/install/setup.bash
-    timeout 5 ros2 topic echo --once --field header.stamp /livox/imu | python3 -c "
-import re, sys, time
-d = dict(re.findall(r\"(\\w+): (\\d+)\", sys.stdin.read()))
-print(\"/livox/imu stamp - now: %+.3f s\" % (int(d[\"sec\"]) + int(d[\"nanosec\"]) * 1e-9 - time.time()))"' \
-    || echo "/livox/imu stamp - now: NO DATA"
+  docker compose exec -T livox livox-status "$(sed -n 's/^LIVOX_IFACE=//p' .env)" || echo "WARNING: the MID-360 is not synced to livox-ptp"
 fi

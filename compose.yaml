@@ -53,13 +53,13 @@ services:
     volumes:
       - ./config/livox:/config:ro
 
-  # PTP master on the LiDAR's interface. Without it the driver stamps each packet on arrival (late,
+  # gPTP master on the LiDAR's interface. Without it the driver stamps each packet on arrival (late,
   # jittered); with it, at measurement. Server only, no CAP_SYS_TIME: chrony owns the Orin clock.
   livox-ptp:
     <<: *ros
     profiles: [livox, fast-lio]
     image: ghcr.io/skymule-ai/mullet-drivers-livox:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
-    command: [ptp4l, -i, "${LIVOX_IFACE:?set LIVOX_IFACE in .env}", -S, -m, --serverOnly, "1"]
+    command: [ptp4l, -i, "${LIVOX_IFACE:?set LIVOX_IFACE in .env}", -S, -m, -f, /etc/linuxptp/livox-gptp.cfg]
 
   # ── Estimators (mullet-vio, mullet-lio) ──────────────────────────────────────
   # Both can run at once (COMPOSE_PROFILES=openvins,fast-lio) to compare them on the same flight;

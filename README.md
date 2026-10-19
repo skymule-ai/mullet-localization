@@ -91,8 +91,8 @@ Be careful with this one: it silently ruins VIO.
   message type (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
 - **Time.** `livox-ptp` is the PTP master on `LIVOX_IFACE`. Without it the driver stamps each packet
   on arrival at the Orin: ROS time, but a few ms late and jittered. With it, at measurement.
-  `scripts/test-on-orin.sh` prints the `/livox/imu` stamp offset, within ~0.5 s either way (mostly
-  the echo's own delay): it catches a wrong clock, not a missing PTP sync.
+  It is gPTP: the MID-360 does not sync to plain PTP over UDP. `scripts/test-on-orin.sh` runs
+  `livox-status`, which prints the sync state the LiDAR itself reports (`time_sync_type 1`, offset in µs).
 - **Start-up.** Keep the drone still while FAST-LIO starts: it initialises gravity and the IMU
   biases from the first samples. Its world frame is the IMU frame at that moment.
 
