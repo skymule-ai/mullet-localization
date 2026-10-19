@@ -89,10 +89,10 @@ Be careful with this one: it silently ruins VIO.
 - **CustomMsg.** `/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point
   times. Foxglove can't draw it; view `/uav0/fast_lio/cloud_registered_body`. This image carries the
   message type (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
-- **Time.** `livox-ptp` is the PTP master on `LIVOX_IFACE`. Without it the LiDAR stamps with its own
-  clock, and the bridge's `timestamp_sample` is wrong. `scripts/test-on-orin.sh` prints the
-  `/livox/imu` stamp offset: synced, it is within ~0.5 s (mostly the echo's own delay); unsynced, it is
-  off by hours or more.
+- **Time.** `livox-ptp` is the PTP master on `LIVOX_IFACE`. Without it the driver stamps each packet
+  on arrival at the Orin: ROS time, but a few ms late and jittered. With it, at measurement.
+  `scripts/test-on-orin.sh` prints the `/livox/imu` stamp offset, within ~0.5 s either way (mostly
+  the echo's own delay): it catches a wrong clock, not a missing PTP sync.
 - **Start-up.** Keep the drone still while FAST-LIO starts: it initialises gravity and the IMU
   biases from the first samples. Its world frame is the IMU frame at that moment.
 

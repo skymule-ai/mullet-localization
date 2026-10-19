@@ -53,8 +53,8 @@ services:
     volumes:
       - ./config/livox:/config:ro
 
-  # PTP master on the LiDAR's interface. Until it runs, the MID-360 stamps with its own clock
-  # (seconds since power-on), not ROS time. Server only, no CAP_SYS_TIME: chrony owns the Orin clock.
+  # PTP master on the LiDAR's interface. Without it the driver stamps each packet on arrival (late,
+  # jittered); with it, at measurement. Server only, no CAP_SYS_TIME: chrony owns the Orin clock.
   livox-ptp:
     <<: *ros
     profiles: [livox, fast-lio]

@@ -23,8 +23,8 @@ for topic in /uav0/d435i/infra1/image_rect_raw /uav0/d435i/infra2/image_rect_raw
   echo "$topic ${rate:-NO DATA}"
 done
 
-# The MID-360 stamps with its own clock until livox-ptp has synced it. Synced: within ~0.5 s (the
-# echo itself takes ~0.2 s). Unsynced: off by the time since the LiDAR powered up, or more.
+# /livox/imu stamps must be ROS time: within ~0.5 s (the echo itself takes ~0.2 s). Catches a wrong
+# clock, not a missing PTP sync (unsynced, the driver stamps on arrival, also ROS time).
 if docker compose ps --services --status running | grep -qx livox; then
   docker compose run --rm --no-deps -T ev_bridge bash -c '
     source /opt/mullet_ws/install/setup.bash
