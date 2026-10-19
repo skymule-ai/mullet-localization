@@ -30,6 +30,12 @@ image there plus, here, a compose service, a profile on `ev_bridge`, and its out
   driver log (`scripts/test-on-orin.sh` prints rejected settings).
 - PX4 parameters and the bridge mode (`PUBLISH_TO_PX4`) belong to a profile in
   [mullet-px4](https://github.com/skymule-ai/mullet-px4): change them there, not in `.env` or QGC.
+- `/livox/lidar` is `livox_ros_driver2/CustomMsg`. The message package is copied from the
+  mullet-drivers Livox image (`LIVOX_IMAGE` in the Dockerfile), never rebuilt here: keep that tag
+  equal to `DRIVERS_TAG`.
+- Each estimator has its own bridge extrinsic (`ev_bridge.yaml` OpenVINS, `ev_bridge_fast_lio.yaml`
+  FAST-LIO2), selected by `EV_BRIDGE_CONFIG` together with `ODOMETRY_TOPIC`.
+- `feat/meta` merges only after the field checklist in issue #4.
 - `config/realsense/d435i.yaml` and `config/openvins/kalibr_imucam_chain.yaml` must
   agree on the infra resolution (848x480): the calibration is only valid at that size.
 

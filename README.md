@@ -9,19 +9,19 @@ EKF2 as external vision.
 | --- | --- | --- |
 | [mullet-drivers](https://github.com/skymule-ai/mullet-drivers) | `mullet-drivers-{realsense,livox,viz}` | D435i, Mid-360S, RViz / foxglove_bridge |
 | [mullet-vio](https://github.com/skymule-ai/mullet-vio) | `mullet-vio-openvins` (VINS-Fusion, Isaac VSLAM later) | visual-inertial odometry |
-| [mullet-lio](https://github.com/skymule-ai/mullet-lio) | `mullet-lio` (FAST-LIO2, FAST-LIVO2 later) | lidar-inertial odometry |
+| [mullet-lio](https://github.com/skymule-ai/mullet-lio) | `mullet-lio-fast-lio` (FAST-LIVO2 later) | lidar-inertial odometry |
 | this repo | `mullet-localization` | `px4_ev_bridge`, `ros2 bag` |
 
 All of them build `FROM` [mullet-base](https://github.com/skymule-ai/mullet-base)
 `v0.5.1` (ROS 2 Jazzy, px4_msgs 1.17), like mullet-core.
 
 ```text
-realsense ──► /uav0/d435i/...                     livox ──► /livox/lidar, /livox/imu
-     │
-openvins ──► /uav0/openvins/odomimu (nav_msgs/Odometry)       one estimator at a time
-     │
-ev_bridge ──► /localization/vehicle_odometry                 shadow mode (default)
-          └─► /fmu/in/vehicle_visual_odometry               PUBLISH_TO_PX4=true
+realsense ──► /uav0/d435i/...                  livox ──► /livox/lidar (CustomMsg), /livox/imu
+     │                                           │        ◄── livox-ptp (PTP master)
+openvins ──► /uav0/openvins/odomimu            fast_lio ──► /uav0/fast_lio/odometry
+     └──────────────┬────────────────────────────┘
+ev_bridge (ODOMETRY_TOPIC: one of them) ──► /localization/vehicle_odometry    shadow mode (default)
+                                        └─► /fmu/in/vehicle_visual_odometry  PUBLISH_TO_PX4=true
 ```
 
 The bridge is the only `/fmu/in` writer outside mullet_core, and it writes only that topic.
@@ -39,10 +39,12 @@ docker compose run -d --rm --name loc-record record  # same, detached: survives 
 docker kill -s INT loc-record                  # stops it, closes the bag; the container removes itself
 ```
 
-`COMPOSE_PROFILES` picks the stack: `openvins` (D435i + OpenVINS + bridge), plus `livox` once the
-Mid-360S is wired and `foxglove` for the ground-station view (Lichtblick or Foxglove at
-`ws://<drone-ip>:8765`). Switching estimator means another profile and `ODOMETRY_TOPIC`; the
-bridge, the recorder and PX4 do not change.
+`COMPOSE_PROFILES` picks the stack: `openvins` (D435i + OpenVINS + bridge), `fast-lio` (MID-360 +
+PTP master + FAST-LIO2 + bridge), both (`openvins,fast-lio`) for comparison flights, plus `foxglove`
+for the ground-station view (Lichtblick or Foxglove at `ws://<drone-ip>:8765`). Switching the
+estimator the bridge forwards means `ODOMETRY_TOPIC` and `EV_BRIDGE_CONFIG` (its extrinsic); the
+recorder and PX4 do not change. Merging `feat/meta` waits on fused flights of both estimators,
+outdoors and indoors ([#4](https://github.com/skymule-ai/mullet-localization/issues/4)).
 
 `config/` is mounted, so tuning needs no rebuild: `docker compose restart <service>`. Never during
 a flight. Pulling the drone's images needs a GHCR login with `read:packages`.
@@ -52,9 +54,11 @@ a flight. Pulling the drone's images needs a GHCR login with `read:packages`.
 | File | What |
 | --- | --- |
 | `config/realsense/d435i.yaml` | infra stereo 848x480@30, emitter off (`emitter_enabled: 0`, an integer), IMU 200 Hz united |
-| `config/livox/MID360s_config.json` | Mid-360S at 192.168.1.104, host 192.168.1.50 (USB-Ethernet adapter) |
+| `config/livox/MID360s_config.json` | MID-360(S) at 192.168.1.104, host 192.168.1.50 (USB-Ethernet adapter `LIVOX_IFACE`). The block name must match the model: see mullet-drivers `config/livox/README.md` |
 | `config/openvins/` | OpenVINS estimator and Kalibr cam-IMU calibration (848x480) |
-| `config/ev_bridge.yaml` | pose of base_link in the estimator's body frame (D435i IMU for OpenVINS) |
+| `config/fast-lio/mid360.yaml` | FAST-LIO2: factory LiDAR-IMU extrinsic held fixed, no map publishing or PCD saving |
+| `config/ev_bridge.yaml` | pose of base_link in OpenVINS's body frame (the D435i IMU) |
+| `config/ev_bridge_fast_lio.yaml` | pose of base_link in FAST-LIO's body frame (the MID-360 IMU); identity until measured |
 
 The defaults in mullet-drivers and mullet-vio are examples. These files are what this drone flies
 with: change them here.
@@ -77,6 +81,20 @@ Be careful with this one: it silently ruins VIO.
   - `ros2 param get /uav0/d435i depth_module.emitter_enabled` says `Integer value is: 0`;
   - `scripts/test-on-orin.sh` prints any setting the driver rejected;
   - the infrared image shows no regular grid of white dots on nearby surfaces.
+
+## MID-360
+
+- **Link.** The Orin's USB Ethernet adapter is 192.168.1.50/24 (NetworkManager profile `livox`,
+  no default route); the LiDAR is 192.168.1.104.
+- **CustomMsg.** `/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point
+  times. Foxglove can't draw it; view `/uav0/fast_lio/cloud_registered_body`. This image carries the
+  message type (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
+- **Time.** `livox-ptp` is the PTP master on `LIVOX_IFACE`. Without it the LiDAR stamps with its own
+  clock, and the bridge's `timestamp_sample` is wrong. `scripts/test-on-orin.sh` prints the
+  `/livox/imu` stamp offset: synced, it is within ~0.5 s (mostly the echo's own delay); unsynced, it is
+  off by hours or more.
+- **Start-up.** Keep the drone still while FAST-LIO starts: it initialises gravity and the IMU
+  biases from the first samples. Its world frame is the IMU frame at that moment.
 
 ## PX4 external vision
 

@@ -3,8 +3,16 @@
 # and mullet-lio; this repo only composes their images. Tests run at build time, so a red
 # test means no image.
 ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-base:v0.5.1
+# livox_ros_driver2 from the driver image, so the recorder and `ros2 topic hz` can subscribe to the
+# CustomMsg /livox/lidar with the driver's exact type. Same base release as BASE_IMAGE.
+ARG LIVOX_IMAGE=ghcr.io/skymule-ai/mullet-drivers-livox:sha-29ab1e8
+FROM ${LIVOX_IMAGE} AS livox
+
 FROM ${BASE_IMAGE}
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+COPY --from=livox /opt/livox_ws/install /opt/livox_ws/install
+COPY --from=livox /usr/local/lib/liblivox_lidar_sdk_shared.so /usr/local/lib/
+RUN ldconfig
 WORKDIR /opt/mullet_ws
 
 COPY mullet_localization src/mullet_localization
@@ -13,6 +21,7 @@ RUN apt-get update \
  && rosdep install --from-paths src /opt/ros2_base_ws/src --ignore-src -y \
  && rm -rf /var/lib/apt/lists/* \
  && source /usr/local/share/mullet-ros/setup.bash \
+ && source /opt/livox_ws/install/setup.bash \
  && colcon build --packages-select mullet_localization \
  && colcon test --packages-select mullet_localization \
  && colcon test-result --verbose \

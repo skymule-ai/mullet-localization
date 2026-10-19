@@ -1,0 +1,13 @@
+# px4_ev_bridge with FAST-LIO2 (EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml). Shadow mode vs PX4 is
+# PUBLISH_TO_PX4 in .env, not here.
+/**:
+  ros__parameters:
+    px4_topic: /fmu/in/vehicle_visual_odometry
+    # Pose of base_link (PX4's body frame, FLU here) in FAST-LIO's body frame, the MID-360's
+    # internal IMU (x forward, y left, z up, with the connector at the back). The lever arm is applied
+    # here, so keep EKF2_EV_POS_X/Y/Z at 0.
+    # TODO(mullet1): measure (tape + CAD, like the D435i in ev_bridge.yaml). Identity = an
+    # upright, forward-facing MID-360 with its IMU at the CoM, which it is not: the shadow-mode
+    # position is off by the lever arm when the drone rotates.
+    body_t_base: [0.0, 0.0, 0.0]
+    body_q_base: [1.0, 0.0, 0.0, 0.0]  # w, x, y, z
