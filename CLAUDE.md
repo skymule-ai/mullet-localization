@@ -34,7 +34,12 @@ image there plus, here, a compose service, a profile on `ev_bridge`, and its out
   mullet-drivers Livox image (`LIVOX_IMAGE` in the Dockerfile), never rebuilt here: keep that tag
   equal to `DRIVERS_TAG`.
 - Each estimator has its own bridge extrinsic (`ev_bridge.yaml` OpenVINS, `ev_bridge_fast_lio.yaml`
-  FAST-LIO2), selected by `EV_BRIDGE_CONFIG` together with `ODOMETRY_TOPIC`.
+  FAST-LIO2), selected by `EV_BRIDGE_CONFIG` together with `ODOMETRY_TOPIC`. `ev_bridge_fast_lio.yaml`
+  is identity until the MID-360 is measured: no fused LIO flight before that.
+- `LIO_TAG` must be a mullet-lio image with all of its patches (sha-7b28b1b or later): earlier ones
+  segfault on the real MID-360 (IMU gaps) or tilt the world (no gravity alignment).
+- PX4 trusts vision through the `EKF2_EV*_NOISE` floors (FAST-LIO reports σ ≈ 3 mm): change them in a
+  mullet-px4 profile, not here.
 - `feat/meta` merges only after the field checklist in issue #4.
 - `config/realsense/d435i.yaml` and `config/openvins/kalibr_imucam_chain.yaml` must
   agree on the infra resolution (848x480): the calibration is only valid at that size.

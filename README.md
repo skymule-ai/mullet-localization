@@ -82,25 +82,81 @@ Be careful with this one: it silently ruins VIO.
   - `scripts/test-on-orin.sh` prints any setting the driver rejected;
   - the infrared image shows no regular grid of white dots on nearby surfaces.
 
-## MID-360
+## MID-360 and FAST-LIO2
 
-- **Link.** The Orin's USB Ethernet adapter is 192.168.1.50/24 (NetworkManager profile `livox`,
-  no default route); the LiDAR is 192.168.1.104.
-- **CustomMsg.** `/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point
-  times. Foxglove can't draw it; view `/uav0/fast_lio/cloud_registered_body`. This image carries the
-  message type (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
-- **Time.** `livox-ptp` is the PTP master on `LIVOX_IFACE`. Without it the driver stamps each packet
-  on arrival at the Orin: ROS time, but a few ms late and jittered. With it, at measurement.
-  It is gPTP: the MID-360 does not sync to plain PTP over UDP. `scripts/test-on-orin.sh` runs
-  `livox-status`, which prints the sync state the LiDAR itself reports (`time_sync_type 1`, offset in µs).
-- **Start-up.** Keep the drone still while FAST-LIO starts: it initialises gravity and the IMU
-  biases from the first samples. Its world frame is the IMU frame at that moment.
+### Setup (once per drone)
+
+- **Link.** The Orin's USB Ethernet adapter (`LIVOX_IFACE`) is 192.168.1.50/24: NetworkManager
+  profile `livox`, no default route. It needs sudo once:
+  `sudo nmcli con add type ethernet ifname <iface> con-name livox ipv4.method manual ipv4.addresses 192.168.1.50/24 ipv4.never-default yes ipv6.method disabled`.
+  The LiDAR is 192.168.1.104 (`config/livox/MID360s_config.json`; the block name must match the model, see
+  mullet-drivers `config/livox/README.md`).
+- **Extrinsic.** `config/ev_bridge_fast_lio.yaml` is the pose of base_link in the MID-360's IMU frame.
+  It is **identity until measured**. Measure it before any fused flight, and before trusting a shadow
+  comparison: the MID-360's position relative to the CoM (tape, ~1 cm) and which way its x axis (cable
+  connector at the back) faces. Its tilt doesn't matter: FAST-LIO's world is gravity-aligned at start-up.
+
+### Run and check
+
+```bash
+# .env: COMPOSE_PROFILES=fast-lio (or openvins,fast-lio for a comparison flight)
+#       ODOMETRY_TOPIC=/uav0/fast_lio/odometry  EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml  (bridge on LIO)
+docker compose pull && docker compose up -d     # drone standing still for ~5 s
+scripts/test-on-orin.sh                         # rates + the MID-360's own sync report
+```
+
+Expect `/livox/lidar` 10 Hz, `/livox/imu` 200 Hz, `/uav0/fast_lio/odometry` 10 Hz, and
+`time_sync_type 1: PTP/gPTP` with an offset of a few µs. Measured on mullet1 standing still for 60 s
+(2026-10-20): 3.4 cm drift, world "up" within 0.2° of gravity, FAST-LIO at ~33% of one core and 180 MB, and
+the driver at 15%.
+
+- **Start still.** FAST-LIO takes gravity and the gyro bias from its first IMU samples. Started while moving,
+  it diverges within seconds: `docker compose restart fast_lio` with the drone still. The first few scans
+  wobble by a few cm/s while it settles.
+- **Never restart `fast_lio` in flight.** Its world restarts at the new pose. The bridge does not signal
+  resets yet (`reset_counter` stays 0), so PX4 would see a jump.
+- **CustomMsg.** `/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point times.
+  Foxglove can't draw it; view `/uav0/fast_lio/cloud_registered_body`. This image carries the message type
+  (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
+- **Time.** `livox-ptp` is the gPTP master on `LIVOX_IFACE` (the MID-360 doesn't sync to plain PTP over
+  UDP). Without it the driver stamps each packet on arrival: ROS time, but a few ms late and jittered.
+- **Warnings.** A few `No point` / `No IMU sample in this scan, skip it` at start-up are harmless. If they
+  are steady, FAST-LIO is falling behind: check `docker stats`.
+- **Where it fails.** Geometry that leaves one direction unconstrained: corridors, open fields with only
+  the ground, foliage seen from far, anything inside 0.5 m (`blind`). mullet-lio `docs/fast-lio.md` has the
+  details.
+
+### Record a comparison flight
+
+`COMPOSE_PROFILES=openvins,fast-lio` runs both estimators. `docker compose run -d --rm --name loc-record
+record` records the raw sensors and both odometries (`/uav0/openvins/*`, `/uav0/fast_lio/odometry|path`),
+the bridge output and PX4's estimate. Both can then be scored on the same flight, and FAST-LIO can be
+replayed from the raw `/livox/*`.
+
+### Fuse FAST-LIO in PX4
+
+The same three steps as for OpenVINS. Don't skip one:
+
+1. **Shadow** (`outdoor` profile): the bridge forwards FAST-LIO (`ODOMETRY_TOPIC`, `EV_BRIDGE_CONFIG`
+   as above) to `/localization/vehicle_odometry` only. From the bag, check:
+   - the track against PX4's GPS estimate (`evo`), and no jumps;
+   - the latency, `timestamp - timestamp_sample` of `/localization/vehicle_odometry`: it must stay well
+     under `EKF2_DELAY_MAX` (200 ms on mullet1), the oldest measurement the EKF can still use;
+   - that rotating the drone in place moves the bridge's position only by noise, which checks the
+     extrinsic.
+2. **Fused with GPS on** (`outdoor-vio`, `EKF2_EV_CTRL 5`: position + velocity).
+3. **Without GPS** (`indoor`: + heading, compass off). Bench/walk only, as for OpenVINS.
+
+Merging `feat/meta` waits on fused flights of both estimators, outdoors (woods) and indoors
+([#4](https://github.com/skymule-ai/mullet-localization/issues/4)).
 
 ## PX4 external vision
 
 The bridge sends base_link's pose in world FRD (`POSE_FRAME_FRD`, arbitrary heading), its
-velocity in the same frame and covariance-derived variances. The extrinsic in
-`config/ev_bridge.yaml` is identity until measured (Kalibr + CAD); it also applies the lever arm.
+velocity in the same frame and covariance-derived variances. Its extrinsic is per estimator
+(`EV_BRIDGE_CONFIG`): `config/ev_bridge.yaml` for OpenVINS (D435i IMU), `config/ev_bridge_fast_lio.yaml`
+for FAST-LIO (MID-360 IMU, identity until measured). It also applies the lever arm.
+The mullet-px4 profiles set the same PX4 parameters whichever estimator runs.
 
 The PX4 parameters for vision and the bridge mode (`PUBLISH_TO_PX4`) are set together by a profile in
 [mullet-px4](https://github.com/skymule-ai/mullet-px4) (`scripts/set-profile.py outdoor|outdoor-vio|indoor`).
@@ -109,8 +165,9 @@ Change them there, not by hand. For reference:
 | Param | Value |
 | --- | --- |
 | `EKF2_EV_CTRL` | `0` in shadow mode (`outdoor`); `5` position + velocity (`outdoor-vio`); `13` + yaw (`indoor`) |
-| `EKF2_EV_DELAY` | measured: the estimator's latency against the IMU |
+| `EKF2_EV_DELAY` | `0` while the stamps are right: the bridge sends the estimator's measurement time as `timestamp_sample` (FAST-LIO: the scan end, on the gPTP clock), so the EKF needs no extra delay. Revisit only if the shadow bag shows a lag. |
 | `EKF2_EV_NOISE_MD` | `0`: reported variances, parameters as the lower bound |
+| `EKF2_EVP_NOISE`, `EKF2_EVV_NOISE`, `EKF2_EVA_NOISE` | `0.1` (m, m/s, rad), the floors. FAST-LIO reports σ ≈ 3 mm and OpenVINS is also over-confident, so these floors decide the weight PX4 gives vision. Tune them in mullet-px4, from the shadow bags. |
 | `EKF2_EV_POS_X/Y/Z` | `0`: the bridge already applies the lever arm |
 | `EKF2_HGT_REF` | stays on baro/GPS until EV is trusted |
 | `UXRCE_DDS_SYNCT` | `1` (default): PX4 converts the bridge's ROS timestamps |
