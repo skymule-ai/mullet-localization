@@ -107,11 +107,17 @@ docker compose pull && docker compose up -d     # drone standing still for ~5 s
 scripts/test-on-orin.sh                         # rates + the MID-360's own sync report
 ```
 
-Expect `/livox/lidar` 10 Hz, `/livox/imu` 200 Hz, `/uav0/fast_lio/odometry` 10 Hz, and
+Expect `/livox/lidar` 10 Hz (the script's Python `ros2 topic hz` can read ~7 Hz on 20k-point
+messages: FAST-LIO's 10 Hz is the real rate), `/livox/imu` 200 Hz, `/uav0/fast_lio/odometry` 10 Hz, and
 `time_sync_type 1: PTP/gPTP` with an offset of a few µs. Measured on mullet1 standing still for 60 s
 (2026-10-20): 3.4 cm drift, world "up" within 0.2° of gravity, FAST-LIO at ~33% of one core and 180 MB, and
 the driver at 15%.
 
+- **OpenVINS needs a lift.** Its static initialiser waits for a still window and then a jerk. With the
+  drone standing still, `/uav0/openvins/odomimu` shows NO DATA and its log repeats
+  `failed static init: no accel jerk detected`. Lift or nudge the drone to start it. OpenVINS and
+  FAST-LIO restart with their drivers (`depends_on … restart: true`); a driver restarted by hand needs
+  its estimator restarted too.
 - **Start still.** FAST-LIO takes gravity and the gyro bias from its first IMU samples. Started while moving,
   it diverges within seconds: `docker compose restart fast_lio` with the drone still. The first few scans
   wobble by a few cm/s while it settles.

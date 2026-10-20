@@ -69,6 +69,12 @@ services:
     profiles: [openvins]
     image: ghcr.io/skymule-ai/mullet-vio-openvins:${VIO_TAG:?set VIO_TAG in .env}
     runtime: nvidia
+    # Restarted with the camera driver: OpenVINS does not get images again when realsense is
+    # recreated under it (mullet1, 2026-10-20: silent from a camera restart until its own restart).
+    depends_on:
+      realsense:
+        condition: service_started
+        restart: true
     volumes:
       - ./config/openvins:/config:ro
     command:
@@ -85,6 +91,10 @@ services:
     profiles: [fast-lio]
     image: ghcr.io/skymule-ai/mullet-lio-fast-lio:${LIO_TAG:?set LIO_TAG in .env}
     runtime: nvidia
+    depends_on:  # restarted with the driver, like openvins
+      livox:
+        condition: service_started
+        restart: true
     volumes:
       - ./config/fast-lio:/config:ro
     command:
