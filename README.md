@@ -129,7 +129,10 @@ the driver at 15%.
 - **Time.** `livox-ptp` is the gPTP master on `LIVOX_IFACE` (the MID-360 doesn't sync to plain PTP over
   UDP). Without it the driver stamps each packet on arrival: ROS time, but a few ms late and jittered.
 - **Warnings.** A few `No point` / `No IMU sample in this scan, skip it` at start-up are harmless. If they
-  are steady, FAST-LIO is falling behind: check `docker stats`.
+  are steady, FAST-LIO is falling behind: check `docker stats`. A stream of `No Effective Points!` means
+  it has lost the map (diverged, typically after a start while moving: position km away): `docker compose
+  restart fast_lio` with the drone still. `docker compose logs` keeps the old run's lines after a restart;
+  the new run starts at `p_pre->lidar_type`.
 - **Where it fails.** Geometry that leaves one direction unconstrained: corridors, open fields with only
   the ground, foliage seen from far, anything inside 0.5 m (`blind`). mullet-lio `docs/fast-lio.md` has the
   details.
