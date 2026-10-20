@@ -58,7 +58,7 @@ a flight. Pulling the drone's images needs a GHCR login with `read:packages`.
 | `config/openvins/` | OpenVINS estimator and Kalibr cam-IMU calibration (848x480) |
 | `config/fast-lio/mid360.yaml` | FAST-LIO2: factory LiDAR-IMU extrinsic held fixed, no map publishing or PCD saving |
 | `config/ev_bridge.yaml` | pose of base_link in OpenVINS's body frame (the D435i IMU) |
-| `config/ev_bridge_fast_lio.yaml` | pose of base_link in FAST-LIO's body frame (the MID-360 IMU); identity until measured |
+| `config/ev_bridge_fast_lio.yaml` | pose of base_link in FAST-LIO's body frame (the MID-360 IMU): MID-360 yawed 180° (cable forward), IMU 2.4 cm ahead of, 2.3 cm right of and 12.1 cm above the CoM (tape, 2026-10-20) |
 
 The defaults in mullet-drivers and mullet-vio are examples. These files are what this drone flies
 with: change them here.
@@ -92,9 +92,11 @@ Be careful with this one: it silently ruins VIO.
   The LiDAR is 192.168.1.104 (`config/livox/MID360s_config.json`; the block name must match the model, see
   mullet-drivers `config/livox/README.md`).
 - **Extrinsic.** `config/ev_bridge_fast_lio.yaml` is the pose of base_link in the MID-360's IMU frame.
-  It is **identity until measured**. Measure it before any fused flight, and before trusting a shadow
-  comparison: the MID-360's position relative to the CoM (tape, ~1 cm) and which way its x axis (cable
-  connector at the back) faces. Its tilt doesn't matter: FAST-LIO's world is gravity-aligned at start-up.
+  The MID-360's +X points away from its cable connector (user manual, coordinate system), and its IMU sits
+  at (11.0, 23.29, −44.12) mm from the point-cloud origin. On mullet1 the cable faces forward, so the unit
+  is yawed 180°; the file shows the arithmetic. Re-measure if the mount changes: position of the unit
+  relative to the CoM (tape, ~1 cm) and which way the cable faces. Its tilt doesn't matter: FAST-LIO's
+  world is gravity-aligned at start-up.
 
 ### Run and check
 
@@ -155,7 +157,7 @@ Merging `feat/meta` waits on fused flights of both estimators, outdoors (woods) 
 The bridge sends base_link's pose in world FRD (`POSE_FRAME_FRD`, arbitrary heading), its
 velocity in the same frame and covariance-derived variances. Its extrinsic is per estimator
 (`EV_BRIDGE_CONFIG`): `config/ev_bridge.yaml` for OpenVINS (D435i IMU), `config/ev_bridge_fast_lio.yaml`
-for FAST-LIO (MID-360 IMU, identity until measured). It also applies the lever arm.
+for FAST-LIO (MID-360 IMU, measured by tape). It also applies the lever arm.
 The mullet-px4 profiles set the same PX4 parameters whichever estimator runs.
 
 The PX4 parameters for vision and the bridge mode (`PUBLISH_TO_PX4`) are set together by a profile in

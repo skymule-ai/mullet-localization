@@ -3,11 +3,15 @@
 /**:
   ros__parameters:
     px4_topic: /fmu/in/vehicle_visual_odometry
-    # Pose of base_link (PX4's body frame, FLU here) in FAST-LIO's body frame, the MID-360's
-    # internal IMU (x forward, y left, z up, with the connector at the back). The lever arm is applied
-    # here, so keep EKF2_EV_POS_X/Y/Z at 0.
-    # TODO(mullet1): measure (tape + CAD, like the D435i in ev_bridge.yaml). Identity = an
-    # upright, forward-facing MID-360 with its IMU at the CoM, which it is not: the shadow-mode
-    # position is off by the lever arm when the drone rotates.
-    body_t_base: [0.0, 0.0, 0.0]
-    body_q_base: [1.0, 0.0, 0.0, 0.0]  # w, x, y, z
+    # Pose of base_link (PX4's body frame, FLU here) in FAST-LIO's body frame, the MID-360's internal
+    # IMU. MID-360 axes (user manual v1.2, coordinate system): +X away from the M12 connector, Y left,
+    # Z up; the IMU has the same axes, at (11.0, 23.29, -44.12) mm from the point-cloud origin O.
+    # The lever arm is applied here, so keep EKF2_EV_POS_X/Y/Z at 0.
+    # mullet1 (2026-10-20): MID-360 on top, cable facing forward, so its +X points backward (yaw 180 deg
+    # from base_link). O measured 3-4 cm ahead of and 16-17 cm above the CoM, centred left-right (tape,
+    # ~1 cm; O taken as the measured point). IMU = O + Rz(180) (0.011, 0.02329, -0.04412)
+    # = (0.024, -0.023, 0.121) m FLU from the CoM, so base_link in the IMU frame is
+    # Rz(180)^T (-0.024, 0.023, -0.121). The unit's ~1.6 deg tilt is left out (FAST-LIO's world is
+    # gravity-aligned; the bridge's lever arm changes by < 1 cm).
+    body_t_base: [0.024, -0.023, -0.121]
+    body_q_base: [0.0, 0.0, 0.0, 1.0]  # w, x, y, z: 180 deg about z (base forward = IMU -x)
