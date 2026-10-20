@@ -155,6 +155,25 @@ services:
         exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_localization
         -e '/uav0/d435i/.*|/uav0/openvins/(odomimu|poseimu)|/uav0/fast_lio/(odometry|path)|/livox/.*|/localization/.*|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf|/tf_static'
 
+  # The key topics only (~90 MB/min instead of ~1.6 GB/min): both estimators, the bridge (shadow or
+  # fused), PX4's estimate, raw GPS and IMU, and FAST-LIO's registered scan (world frame, 0.5 m, viewable
+  # as is). No images or raw LiDAR, so it can't replay the estimators: use `record` for that.
+  #   docker compose run -d --rm --name loc-record-lite record-lite ; docker kill -s INT loc-record-lite
+  record-lite:
+    <<: *ros
+    profiles: [record]
+    image: ghcr.io/skymule-ai/mullet-localization:${LOCALIZATION_TAG:?set LOCALIZATION_TAG in .env}
+    restart: "no"
+    volumes:
+      - ${HOME}/flights:/flights
+    command:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_lite
+        -e '/uav0/fast_lio/(odometry|path|cloud_registered)|/uav0/openvins/(odomimu|poseimu)|/localization/.*|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf_static'
+
   foxglove:  # ws://<drone>:8765 for Lichtblick / Foxglove on the ground station
     <<: *ros
     profiles: [foxglove]
