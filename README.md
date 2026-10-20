@@ -144,6 +144,15 @@ record` records the raw sensors and both odometries (`/uav0/openvins/*`, `/uav0/
 the bridge output and PX4's estimate. Both can then be scored on the same flight, and FAST-LIO can be
 replayed from the raw `/livox/*`.
 
+`record-lite` keeps only the key topics: both estimators, the bridge (shadow or fused), PX4's estimate
+with raw GPS and IMU, and FAST-LIO's registered scan (world frame, viewable in Lichtblick as is). That's
+~30–100 MB/min against ~1.6 GB/min. It has no images or raw LiDAR, so it can't replay the estimators:
+
+```bash
+docker compose run -d --rm --name loc-record-lite record-lite   # ~/flights/<UTC>_lite
+docker kill -s INT loc-record-lite
+```
+
 ### Fuse FAST-LIO in PX4
 
 The same three steps as for OpenVINS. Don't skip one:
@@ -157,6 +166,27 @@ The same three steps as for OpenVINS. Don't skip one:
      extrinsic.
 2. **Fused with GPS on** (`outdoor-vio`, `EKF2_EV_CTRL 5`: position + velocity).
 3. **Without GPS** (`indoor`: + heading, compass off). Bench/walk only, as for OpenVINS.
+
+A field day with FAST-LIO fused alongside GPS, from the laptop:
+
+```bash
+ssh orin 'cd ~/mullet-localization && scripts/test-on-orin.sh'        # on the ground, drone still: rates, gPTP
+# lift or nudge the drone once: OpenVINS initialises
+ssh orin 'cd ~/mullet-localization && sed -i "s#^ODOMETRY_TOPIC=.*#ODOMETRY_TOPIC=/uav0/fast_lio/odometry#; s#^EV_BRIDGE_CONFIG=.*#EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml#" .env && docker compose up -d ev_bridge'
+ssh orin 'cd ~/mullet-localization && docker compose run -d --rm --name loc-record-lite record-lite'
+ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor-vio'          # disarmed: EKF2_EV_CTRL 5, bridge sends to PX4
+ssh orin '~/mullet-px4/scripts/set-profile.py --show'                  # profile outdoor-vio, bridge publish_to_px4=True
+ssh orin 'cd ~/mullet-localization && docker compose exec ev_bridge bash -c "source /opt/mullet_ws/install/setup.bash && timeout 5 ros2 topic hz /fmu/in/vehicle_visual_odometry"'   # ~10 Hz
+# ... fly ...
+ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor'              # back to shadow, disarmed
+ssh orin 'docker kill -s INT loc-record-lite'
+rsync -av orin:flights/ --include '*_lite/***' --exclude '*' ~/WORKSPACE/MULLET/field/bags/
+```
+
+With GPS on, PX4 gates vision: a FAST-LIO pose more than `EKF2_EVP_GATE` (5) σ from the EKF (σ ≥ 0.1 m,
+the noise floor) is rejected, and the EKF carries on with GPS. Open ground with no structure is where
+FAST-LIO is weakest: watch `docker compose logs -f fast_lio` for a stream of `No Effective Points!`.
+Paddock's localization badge says what PX4 actually fuses (GPS+vision when EV is accepted).
 
 Merging `feat/meta` waits on fused flights of both estimators, outdoors (woods) and indoors
 ([#4](https://github.com/skymule-ai/mullet-localization/issues/4)).
