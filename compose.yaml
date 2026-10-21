@@ -136,6 +136,27 @@ services:
         --params-file /config/${EV_BRIDGE_CONFIG:-ev_bridge.yaml} -p publish_to_px4:=${PUBLISH_TO_PX4:-false}
         -r localization/odometry:=${ODOMETRY_TOPIC:-/uav0/openvins/odomimu}
 
+  # Pre-recording check: clock, disk, UDP buffer, PX4 (alive, aligned, GPS), the estimators and the bridge.
+  # Exit 0 only when all green: `docker compose run --rm preflight && docker compose run -d --rm --name
+  # loc-record record`. Indoor-only: `docker compose run --rm preflight --no-gps`.
+  preflight:
+    <<: *ros
+    profiles: [record]
+    image: ghcr.io/skymule-ai/mullet-localization:${LOCALIZATION_TAG:?set LOCALIZATION_TAG in .env}
+    restart: "no"
+    volumes:
+      - ./scripts/preflight.py:/preflight.py:ro
+      - /run/systemd/timesync:/run/timesync:ro
+      - ${HOME}/flights:/flights:ro
+    entrypoint:
+      - bash
+      - -c
+      - >-
+        source /opt/mullet_ws/install/setup.bash &&
+        PUBLISH_TO_PX4=${PUBLISH_TO_PX4:-false} COMPOSE_PROFILES=${COMPOSE_PROFILES:-}
+        exec python3 /preflight.py "$$@"
+      - preflight
+
   record:
     <<: *ros
     profiles: [record]
