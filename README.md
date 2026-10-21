@@ -34,10 +34,17 @@ git clone git@github.com:skymule-ai/mullet-localization.git && cd mullet-localiz
 cp .env.example .env     # ROS_DOMAIN_ID, COMPOSE_PROFILES, image tags (immutable on aircraft)
 docker compose pull && docker compose up -d
 scripts/test-on-orin.sh  # topic rates of the running stack
+docker compose run --rm preflight              # all green before recording, else exit 1 (--no-gps indoors)
 docker compose run --rm record                 # bag into ~/flights/<UTC>_localization
 docker compose run -d --rm --name loc-record record  # same, detached: survives SSH drops
 docker kill -s INT loc-record                  # stops it, closes the bag; the container removes itself
 ```
+
+`preflight` checks, over 6 s: the clock is NTP-synced (the Orin has no RTC battery: unsynced, bags get wrong
+names and times), ≥ 20 GB free, `net.core.rmem_default` ≥ 8 MiB, PX4 publishing with the EKF aligned, a GPS fix
+(≥ 6 satellites) fused, each estimator in `COMPOSE_PROFILES` at rate, the bridge at ≥ 8 Hz with vision lag ≤ 100 ms,
+and, when `PUBLISH_TO_PX4=true`, PX4 fusing vision position and velocity. Record only on ALL GREEN:
+`docker compose run --rm preflight && docker compose run -d --rm --name loc-record record`.
 
 `COMPOSE_PROFILES` picks the stack: `openvins` (D435i + OpenVINS + bridge), `fast-lio` (MID-360 +
 PTP master + FAST-LIO2 + bridge), both (`openvins,fast-lio`) for comparison flights, plus `foxglove`
