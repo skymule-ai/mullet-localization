@@ -4,11 +4,25 @@ on:
   pull_request:
     branches:
       - main
+    # Only what goes into the image (the Dockerfile copies mullet_localization/ only). Scripts, configs,
+    # compose.yaml and docs are mounted or read on the drone: no rebuild. Tag pushes always build (GitHub
+    # ignores paths for tags). A commit that skips the build gets no sha-<commit> image: pin
+    # LOCALIZATION_TAG to the last commit that changed the image.
+    paths:
+      - "mullet_localization/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/build-and-push.yml"
   push:
     branches:
       - "**"
     tags:
       - "v*"
+    paths:  # same list as pull_request
+      - "mullet_localization/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/build-and-push.yml"
 
 jobs:
   build-and-push:
