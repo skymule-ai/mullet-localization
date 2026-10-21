@@ -50,7 +50,12 @@ def skip(name, why):
 
 
 def rate(topic):
-    return len(msgs[topic]) / WINDOW
+    """Messages per second between the first and last received, 0 if the last is over 1 s old. Counting over the
+    whole window would undercount: a fresh container takes a second or two to discover each topic."""
+    t = [r for r, _ in msgs[topic]]
+    if len(t) < 2 or time.monotonic() - t[-1] > 1.0:
+        return 0.0
+    return (len(t) - 1) / (t[-1] - t[0])
 
 
 # Host
