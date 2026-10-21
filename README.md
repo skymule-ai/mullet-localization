@@ -91,6 +91,14 @@ Be careful with this one: it silently ruins VIO.
   `sudo nmcli con add type ethernet ifname <iface> con-name livox ipv4.method manual ipv4.addresses 192.168.1.50/24 ipv4.never-default yes ipv6.method disabled`.
   The LiDAR is 192.168.1.104 (`config/livox/MID360s_config.json`; the block name must match the model, see
   mullet-drivers `config/livox/README.md`).
+- **Socket buffers.** A `/livox/lidar` scan is ~400 KB, seven 64 KB UDP datagrams on loopback
+  (Fast DDS, `UDPv4` only). Fast DDS sizes its sockets from the kernel default, 208 KB on JetPack, so
+  about half of every scan is dropped and the reliable reader waits ~2 s for the repair, then gets 20
+  queued scans at once. FAST-LIO's output then lags its stamps by up to 1.9 s, beyond `EKF2_DELAY_MAX`,
+  and PX4 drops every sample (mullet1, 2026-10-21: 3 datagrams dropped per scan, lag 0.015–1.92 s
+  sawtooth). Raise the default once; it applies to sockets opened afterwards, so reboot or restart the stack:
+  `printf 'net.core.rmem_max=8388608\nnet.core.rmem_default=8388608\n' | sudo tee /etc/sysctl.d/60-mullet-dds.conf && sudo sysctl --system`.
+  `scripts/test-on-orin.sh` warns while it is lower. `grep RcvbufErrors` in `/proc/net/snmp` counts the drops.
 - **Extrinsic.** `config/ev_bridge_fast_lio.yaml` is the pose of base_link in the MID-360's IMU frame.
   The MID-360's +X points away from its cable connector (user manual, coordinate system), and its IMU sits
   at (11.0, 23.29, −44.12) mm from the point-cloud origin. On mullet1 the cable faces forward, so the unit
