@@ -2,10 +2,10 @@
 # px4_msgs release/1.17). Drivers and estimators are built by mullet-drivers, mullet-vio
 # and mullet-lio; this repo only composes their images. Tests run at build time, so a red
 # test means no image.
-ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-base:v0.5.1
+ARG BASE_IMAGE=ghcr.io/skymule-ai/mullet-base:v0.6.0
 # livox_ros_driver2 from the driver image, so the recorder and `ros2 topic hz` can subscribe to the
 # CustomMsg /livox/lidar with the driver's exact type. Same base release as BASE_IMAGE.
-ARG LIVOX_IMAGE=ghcr.io/skymule-ai/mullet-drivers-livox:sha-8d0563c
+ARG LIVOX_IMAGE=ghcr.io/skymule-ai/mullet-drivers-livox:sha-8f9159f
 FROM ${LIVOX_IMAGE} AS livox
 
 FROM ${BASE_IMAGE}
