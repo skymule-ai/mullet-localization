@@ -152,8 +152,9 @@ the bridge output and PX4's estimate. Both can then be scored on the same flight
 replayed from the raw `/livox/*`.
 
 `record-lite` keeps only the key topics: both estimators, the bridge (shadow or fused), PX4's estimate
-with raw GPS and IMU, and FAST-LIO's registered scan (world frame, viewable in Lichtblick as is). That's
-~30–100 MB/min against ~1.6 GB/min. It has no images or raw LiDAR, so it can't replay the estimators:
+with raw GPS and IMU, FAST-LIO's registered scan (world frame, viewable in Lichtblick as is) and the raw
+`/livox/lidar` + `/livox/imu`, so FAST-LIO can be replayed and the offline maps built from it. That's
+~280 MB/min against ~1.6 GB/min. It has no images, so it can't replay OpenVINS:
 
 ```bash
 docker compose run -d --rm --name loc-record-lite record-lite   # ~/flights/<UTC>_lite
