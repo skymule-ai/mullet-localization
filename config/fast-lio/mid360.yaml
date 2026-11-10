@@ -12,8 +12,8 @@
         map_file_path: "./test.pcd"
 
         common:
-            lid_topic:  "/livox/lidar"   # livox_ros_driver2/msg/CustomMsg (xfer_format 1)
-            imu_topic:  "/livox/imu"     # accelerations in g; FAST-LIO rescales them at init
+            lid_topic:  "/livox/lidar"   # compose.yaml sets /$DRONE_ID/livox/lidar. livox_ros_driver2/msg/CustomMsg (xfer_format 1)
+            imu_topic:  "/livox/imu"     # compose.yaml sets /$DRONE_ID/livox/imu. Accelerations in g; FAST-LIO rescales them at init
             time_sync_en: false          # LiDAR and IMU share the MID-360's clock
             time_offset_lidar_to_imu: 0.0
 

@@ -17,7 +17,7 @@ cam0:
   distortion_model: radtan
   intrinsics: [424.5499, 424.5499, 426.5933, 244.5586]  # fu, fv, pu, pv
   resolution: [848, 480]
-  rostopic: /uav0/d435i/infra1/image_rect_raw
+  rostopic: /${DRONE_ID}/d435i/infra1/image_rect_raw
   timeshift_cam_imu: 0.0
 
 cam1:
@@ -32,5 +32,5 @@ cam1:
   distortion_model: radtan
   intrinsics: [424.5499, 424.5499, 426.5933, 244.5586]
   resolution: [848, 480]
-  rostopic: /uav0/d435i/infra2/image_rect_raw
+  rostopic: /${DRONE_ID}/d435i/infra2/image_rect_raw
   timeshift_cam_imu: 0.0

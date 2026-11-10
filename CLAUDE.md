@@ -21,8 +21,8 @@ image there plus, here, a compose service, a profile on `ev_bridge`, and its out
   that breaks the convention (VINS-Fusion publishes its twist in the world frame) gets a relay,
   not a branch in the bridge.
 - **`px4_ev_bridge` is the only `/fmu/in` writer here**, and only for
-  `<PX4_PREFIX>/fmu/in/vehicle_visual_odometry` (`/uav_N`, from `/etc/mullet/drone.env`). It defaults to shadow mode (`publish_to_px4: false`,
-  `/localization/vehicle_odometry`). Do not change that default.
+  `/uav_N/fmu/in/vehicle_visual_odometry` (`uav_N` = `DRONE_ID` in `/etc/mullet/drone.env`). It defaults to shadow mode (`publish_to_px4: false`,
+  `/uav_N/localization/vehicle_odometry`). Do not change that default.
 - The frame math lives in `mullet_localization/frames.py` with no ROS imports, covered by
   `test/test_frames.py`. Any change there needs a test that fails without it.
 - Camera parameters use the type the driver declares (`depth_module.emitter_enabled: 0`, not `false`):
@@ -30,7 +30,7 @@ image there plus, here, a compose service, a profile on `ev_bridge`, and its out
   driver log (`scripts/test-on-orin.sh` prints rejected settings).
 - PX4 parameters and the bridge mode (`PUBLISH_TO_PX4`) belong to a profile in
   [mullet-px4](https://github.com/skymule-ai/mullet-px4): change them there, not in `.env` or QGC.
-- `/livox/lidar` is `livox_ros_driver2/CustomMsg`. The message package is copied from the
+- `/uav_N/livox/lidar` is `livox_ros_driver2/CustomMsg`. The message package is copied from the
   mullet-drivers Livox image (`LIVOX_IMAGE` in the Dockerfile), never rebuilt here: keep that tag
   equal to `DRIVERS_TAG`.
 - Each estimator has its own bridge extrinsic (`ev_bridge.yaml` OpenVINS, `ev_bridge_fast_lio.yaml`

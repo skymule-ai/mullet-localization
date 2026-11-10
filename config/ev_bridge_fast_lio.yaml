@@ -2,7 +2,7 @@
 # PUBLISH_TO_PX4 in .env, not here.
 /**:
   ros__parameters:
-    # px4_topic is set by compose.yaml: <PX4_PREFIX>/fmu/in/vehicle_visual_odometry (/etc/mullet/drone.env).
+    # px4_topic is set by compose.yaml: /$DRONE_ID/fmu/in/vehicle_visual_odometry (/etc/mullet/drone.env).
     # Pose of base_link (PX4's body frame, FLU here) in FAST-LIO's body frame, the MID-360's internal
     # IMU. MID-360 axes (user manual v1.2, coordinate system): +X away from the M12 connector, Y left,
     # Z up; the IMU has the same axes, at (11.0, 23.29, -44.12) mm from the point-cloud origin O.

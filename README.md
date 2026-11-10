@@ -16,18 +16,22 @@ All of them build `FROM` [mullet-base](https://github.com/skymule-ai/mullet-base
 `v0.5.1` (ROS 2 Jazzy, px4_msgs 1.17), like mullet-core.
 
 ```text
-realsense ──► /uav0/d435i/...                  livox ──► /livox/lidar (CustomMsg), /livox/imu
+realsense ──► /uav_N/d435i/...                  livox ──► /uav_N/livox/lidar (CustomMsg), /uav_N/livox/imu
      │                                           │        ◄── livox-ptp (PTP master)
-openvins ──► /uav0/openvins/odomimu            fast_lio ──► /uav0/fast_lio/odometry
+openvins ──► /uav_N/openvins/odomimu            fast_lio ──► /uav_N/fast_lio/odometry
      └──────────────┬────────────────────────────┘
-ev_bridge (ODOMETRY_TOPIC: one of them) ──► /localization/vehicle_odometry    shadow mode (default)
+ev_bridge (ODOMETRY_TOPIC: one of them) ──► /uav_N/localization/vehicle_odometry    shadow mode (default)
                                         └─► /uav_N/fmu/in/vehicle_visual_odometry  PUBLISH_TO_PX4=true
 ```
 
 The bridge is the only `/fmu/in` writer outside mullet_core, and it writes only that topic.
 Mission frameworks still never publish `/fmu/in/*`. Every drone is namespaced: PX4's topics are
-`<PX4_PREFIX>/fmu/...` (`/uav_N`, from `/etc/mullet/drone.env`), and the bridge, `preflight` and both
-recorders use this drone's prefix only, since the fleet shares the ROS domain.
+`/uav_N/fmu/...` (`uav_N` = `DRONE_ID` in `/etc/mullet/drone.env`), and the bridge, `preflight` and both
+recorders use this drone's prefix only, since the fleet shares the ROS domain. The same holds for
+everything this stack publishes: sensors, estimators and the bridge are under `/uav_N`, and the
+estimators' TF (FAST-LIO's `camera_init -> body`, OpenVINS's `global -> imu -> cam*`, fixed frame names)
+goes to `/uav_N/tf`, so two drones never collide. A viewer that only reads `/tf` won't see these
+frames until it's pointed at `/uav_N/tf`.
 
 ## On the drone
 
@@ -88,7 +92,7 @@ Be careful with this one: it silently ruins VIO.
 - **Setting:** `depth_module.emitter_enabled: 0` in `config/realsense/d435i.yaml` (0 off, 1 on, 2 auto).
   It must be an **integer**: `false` is rejected with only a WARN, and the projector stays on.
 - **Check:**
-  - `ros2 param get /uav0/d435i depth_module.emitter_enabled` says `Integer value is: 0`;
+  - `ros2 param get /uav_N/d435i depth_module.emitter_enabled` says `Integer value is: 0`;
   - `scripts/test-on-orin.sh` prints any setting the driver rejected;
   - the infrared image shows no regular grid of white dots on nearby surfaces.
 
@@ -112,19 +116,19 @@ Be careful with this one: it silently ruins VIO.
 
 ```bash
 # .env: COMPOSE_PROFILES=fast-lio (or openvins,fast-lio for a comparison flight)
-#       ODOMETRY_TOPIC=/uav0/fast_lio/odometry  EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml  (bridge on LIO)
+#       ODOMETRY_TOPIC=fast_lio/odometry  EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml  (bridge on LIO)
 docker compose pull && docker compose up -d     # drone standing still for ~5 s
 scripts/test-on-orin.sh                         # rates + the MID-360's own sync report
 ```
 
-Expect `/livox/lidar` 10 Hz (the script's Python `ros2 topic hz` can read ~7 Hz on 20k-point
-messages: FAST-LIO's 10 Hz is the real rate), `/livox/imu` 200 Hz, `/uav0/fast_lio/odometry` 10 Hz, and
+Expect `/uav_N/livox/lidar` 10 Hz (the script's Python `ros2 topic hz` can read ~7 Hz on 20k-point
+messages: FAST-LIO's 10 Hz is the real rate), `/uav_N/livox/imu` 200 Hz, `/uav_N/fast_lio/odometry` 10 Hz, and
 `time_sync_type 1: PTP/gPTP` with an offset of a few µs. Measured on mullet1 standing still for 60 s
 (2026-10-20): 3.4 cm drift, world "up" within 0.2° of gravity, FAST-LIO at ~33% of one core and 180 MB, and
 the driver at 15%.
 
 - **OpenVINS needs a lift.** Its static initialiser waits for a still window and then a jerk. With the
-  drone standing still, `/uav0/openvins/odomimu` shows NO DATA and its log repeats
+  drone standing still, `/uav_N/openvins/odomimu` shows NO DATA and its log repeats
   `failed static init: no accel jerk detected`. Lift or nudge the drone to start it. OpenVINS and
   FAST-LIO restart with their drivers (`depends_on … restart: true`); a driver restarted by hand needs
   its estimator restarted too.
@@ -133,8 +137,8 @@ the driver at 15%.
   wobble by a few cm/s while it settles.
 - **Never restart `fast_lio` in flight.** Its world restarts at the new pose. The bridge does not signal
   resets yet (`reset_counter` stays 0), so PX4 would see a jump.
-- **CustomMsg.** `/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point times.
-  Foxglove can't draw it; view `/uav0/fast_lio/cloud_registered_body`. This image carries the message type
+- **CustomMsg.** `/uav_N/livox/lidar` is `livox_ros_driver2/msg/CustomMsg`: FAST-LIO needs its per-point times.
+  Foxglove can't draw it; view `/uav_N/fast_lio/cloud_registered_body`. This image carries the message type
   (copied from the driver image), so `record` and `test-on-orin.sh` can read it.
 - **Time.** `livox-ptp` is the gPTP master on `LIVOX_IFACE` (the MID-360 doesn't sync to plain PTP over
   UDP). Without it the driver stamps each packet on arrival: ROS time, but a few ms late and jittered.
@@ -150,13 +154,13 @@ the driver at 15%.
 ### Record a comparison flight
 
 `COMPOSE_PROFILES=openvins,fast-lio` runs both estimators. `docker compose run -d --rm --name loc-record
-record` records the raw sensors and both odometries (`/uav0/openvins/*`, `/uav0/fast_lio/odometry|path`),
+record` records the raw sensors and both odometries (`/uav_N/openvins/*`, `/uav_N/fast_lio/odometry|path`),
 the bridge output and PX4's estimate. Both can then be scored on the same flight, and FAST-LIO can be
-replayed from the raw `/livox/*`.
+replayed from the raw `/uav_N/livox/*`.
 
 `record-lite` keeps only the key topics: both estimators, the bridge (shadow or fused), PX4's estimate
 with raw GPS and IMU, FAST-LIO's registered scan (world frame, viewable in Lichtblick as is) and the raw
-`/livox/lidar` + `/livox/imu`, so FAST-LIO can be replayed and the offline maps built from it. That's
+`/uav_N/livox/lidar` + `/uav_N/livox/imu`, so FAST-LIO can be replayed and the offline maps built from it. That's
 ~280 MB/min against ~1.6 GB/min. It has no images, so it can't replay OpenVINS:
 
 ```bash
@@ -169,9 +173,9 @@ docker kill -s INT loc-record-lite
 The same three steps as for OpenVINS. Don't skip one:
 
 1. **Shadow** (`outdoor` profile): the bridge forwards FAST-LIO (`ODOMETRY_TOPIC`, `EV_BRIDGE_CONFIG`
-   as above) to `/localization/vehicle_odometry` only. From the bag, check:
+   as above) to `/uav_N/localization/vehicle_odometry` only. From the bag, check:
    - the track against PX4's GPS estimate (`evo`), and no jumps;
-   - the latency, `timestamp - timestamp_sample` of `/localization/vehicle_odometry`: it must stay well
+   - the latency, `timestamp - timestamp_sample` of `/uav_N/localization/vehicle_odometry`: it must stay well
      under `EKF2_DELAY_MAX` (200 ms on mullet1), the oldest measurement the EKF can still use;
    - that rotating the drone in place moves the bridge's position only by noise, which checks the
      extrinsic.
@@ -183,11 +187,11 @@ A field day with FAST-LIO fused alongside GPS, from the laptop:
 ```bash
 ssh orin 'cd ~/mullet-localization && scripts/test-on-orin.sh'        # on the ground, drone still: rates, gPTP
 # lift or nudge the drone once: OpenVINS initialises
-ssh orin 'cd ~/mullet-localization && sed -i "s#^ODOMETRY_TOPIC=.*#ODOMETRY_TOPIC=/uav0/fast_lio/odometry#; s#^EV_BRIDGE_CONFIG=.*#EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml#" .env && docker compose up -d ev_bridge'
+ssh orin 'cd ~/mullet-localization && sed -i "s#^ODOMETRY_TOPIC=.*#ODOMETRY_TOPIC=fast_lio/odometry#; s#^EV_BRIDGE_CONFIG=.*#EV_BRIDGE_CONFIG=ev_bridge_fast_lio.yaml#" .env && docker compose up -d ev_bridge'
 ssh orin 'cd ~/mullet-localization && docker compose run -d --rm --name loc-record-lite record-lite'
 ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor-vio'          # disarmed: EKF2_EV_CTRL 5, bridge sends to PX4
 ssh orin '~/mullet-px4/scripts/set-profile.py --show'                  # profile outdoor-vio, bridge publish_to_px4=True
-ssh orin 'cd ~/mullet-localization && docker compose exec ev_bridge bash -c "source /opt/mullet_ws/install/setup.bash && timeout 5 ros2 topic hz $PX4_PREFIX/fmu/in/vehicle_visual_odometry"'   # ~10 Hz
+ssh orin 'cd ~/mullet-localization && docker compose exec ev_bridge bash -c "source /opt/mullet_ws/install/setup.bash && timeout 5 ros2 topic hz /$DRONE_ID/fmu/in/vehicle_visual_odometry"'   # ~10 Hz
 # ... fly ...
 ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor'              # back to shadow, disarmed
 ssh orin 'docker kill -s INT loc-record-lite'

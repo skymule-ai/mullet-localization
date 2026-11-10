@@ -14,11 +14,12 @@ docker compose logs --since 60s realsense 2>&1 | grep "Could not set param" \
 
 # Expected: infra 30 Hz, imu 200 Hz, lidar 10 Hz, livox imu 200 Hz, OpenVINS odometry ~ imu
 # rate, FAST-LIO odometry 10 Hz. A topic of a profile that is not running prints NO DATA.
-for topic in /uav0/d435i/infra1/image_rect_raw /uav0/d435i/infra2/image_rect_raw \
-             /uav0/d435i/imu /livox/lidar /livox/imu \
-             /uav0/openvins/odomimu /uav0/fast_lio/odometry /localization/vehicle_odometry; do
+# Topics are under the drone's namespace, /$DRONE_ID (uav_N, /etc/mullet/drone.env): prefixed in the container.
+for topic in d435i/infra1/image_rect_raw d435i/infra2/image_rect_raw \
+             d435i/imu livox/lidar livox/imu \
+             openvins/odomimu fast_lio/odometry localization/vehicle_odometry; do
   rate=$(docker compose run --rm --no-deps -T ev_bridge bash -c \
-    "source /opt/mullet_ws/install/setup.bash && timeout 6 ros2 topic hz $topic" 2>/dev/null \
+    "source /opt/mullet_ws/install/setup.bash && timeout 6 ros2 topic hz /\$DRONE_ID/$topic" 2>/dev/null \
     | awk '/average rate/ {r=$3} END {print r}' || true)
   echo "$topic ${rate:-NO DATA}"
 done
