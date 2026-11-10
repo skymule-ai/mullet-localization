@@ -4,6 +4,11 @@
 set -euo pipefail
 
 docker compose pull
+
+# Fast DDS sizes its UDP sockets from this default; at JetPack's 208 KB half of every 400 KB LiDAR
+# scan is dropped and FAST-LIO's output lags ~2 s (README, MID-360 setup).
+[ "$(sysctl -n net.core.rmem_default)" -ge 8388608 ] \
+  || echo "WARNING: net.core.rmem_default < 8 MiB: /livox/lidar loses datagrams (README, Socket buffers)"
 docker compose up -d
 sleep 10  # driver and estimator start-up
 
