@@ -25,5 +25,5 @@ done
 
 # The MID-360's own report of its gPTP sync (time_sync_type 1, offset in us); exits 1 when unsynced.
 if docker compose ps --services --status running | grep -qx livox; then
-  docker compose exec -T livox livox-status "$(sed -n 's/^LIVOX_IFACE=//p' .env)" || echo "WARNING: the MID-360 is not synced to livox-ptp"
+  docker compose exec -T livox sh -c 'livox-status "$LIVOX_IFACE"' || echo "WARNING: the MID-360 is not synced to livox-ptp"
 fi
