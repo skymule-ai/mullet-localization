@@ -31,7 +31,8 @@ Mission frameworks still never publish `/fmu/in/*`.
 
 ```bash
 git clone git@github.com:skymule-ai/mullet-localization.git && cd mullet-localization
-cp .env.example .env     # ROS_DOMAIN_ID, COMPOSE_PROFILES, image tags (immutable on aircraft)
+cp .env.example .env     # COMPOSE_PROFILES, image tags (immutable on aircraft)
+                         # ROS_DOMAIN_ID, LIVOX_IFACE: /etc/mullet/drone.env (mullet-setup)
 docker compose pull && docker compose up -d
 scripts/test-on-orin.sh  # topic rates of the running stack
 docker compose run --rm preflight              # all green before recording, else exit 1 (--no-gps indoors)
@@ -93,7 +94,7 @@ Be careful with this one: it silently ruins VIO.
 
 ### Setup (once per drone)
 
-- **Link.** The Orin's USB Ethernet adapter (`LIVOX_IFACE`) is 192.168.1.50/24: NetworkManager
+- **Link.** The Orin's USB Ethernet adapter (`LIVOX_IFACE` in `/etc/mullet/drone.env`) is 192.168.1.50/24: NetworkManager
   profile `livox`, no default route. It needs sudo once:
   `sudo nmcli con add type ethernet ifname <iface> con-name livox ipv4.method manual ipv4.addresses 192.168.1.50/24 ipv4.never-default yes ipv6.method disabled`.
   The LiDAR is 192.168.1.104 (`config/livox/MID360s_config.json`; the block name must match the model, see
