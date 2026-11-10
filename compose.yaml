@@ -1,8 +1,10 @@
 # Localization on one drone. Pins the images built by mullet-drivers, mullet-vio and
 # mullet-lio, holds this drone's sensor configs and calibration (config/), and adds the PX4
 # bridge and recording. From here:
-#   cp .env.example .env                # tags, COMPOSE_PROFILES (which stack); the ROS domain and
-#                                       # LIVOX_IFACE come from /etc/mullet/drone.env (mullet-setup)
+#   cp .env.example .env                # tags, COMPOSE_PROFILES (which stack); the ROS domain,
+#                                       # DRONE_ID and LIVOX_IFACE come from /etc/mullet/drone.env
+# Every topic is under the drone's namespace /$DRONE_ID (uav_N): sensors, estimators, the bridge, PX4
+# (/uav_N/fmu/...) and the TF the estimators broadcast (/uav_N/tf). The fleet shares one ROS domain.
 #   docker compose pull && docker compose up -d
 #   docker compose run --rm record      # mcap bag into ~/flights/<UTC>_localization, Ctrl-C stops
 #   docker compose run -d --rm --name loc-record record   # detached (survives SSH drops);
@@ -29,7 +31,7 @@ x-ros: &ros
 
 services:
   # ── Sensors (mullet-drivers) ─────────────────────────────────────────────────
-  realsense:  # /uav0/d435i/{infra1,infra2}/image_rect_raw, /uav0/d435i/imu
+  realsense:  # /uav_N/d435i/{infra1,infra2}/image_rect_raw, /uav_N/d435i/imu
     <<: *ros
     profiles: [realsense, openvins]
     image: ghcr.io/skymule-ai/mullet-drivers-realsense:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
@@ -40,23 +42,34 @@ services:
     volumes:
       - ./config/realsense:/config:ro
       - /dev/bus/usb:/dev/bus/usb
+    # publish_tf false: the camera's internal static frames go nowhere else (OpenVINS has its own Kalibr
+    # calibration), and the launch file can't move them off the fleet-wide /tf_static.
     command:
-      - ros2
-      - launch
-      - realsense2_camera
-      - rs_launch.py
-      - config_file:=/config/d435i.yaml
-      - camera_namespace:=uav0
-      - camera_name:=d435i
-      - tf_prefix:=uav0/d435i
+      - sh
+      - -c
+      - >-
+        exec ros2 launch realsense2_camera rs_launch.py config_file:=/config/d435i.yaml
+        camera_namespace:="$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env}" camera_name:=d435i
+        tf_prefix:="$$DRONE_ID/d435i" publish_tf:=false
 
-  livox:  # /livox/lidar (livox_ros_driver2/CustomMsg), /livox/imu (acc in g)
+  # /uav_N/livox/lidar (livox_ros_driver2/CustomMsg), /uav_N/livox/imu (acc in g). The image's own
+  # command plus the namespace: __ns for relative names, the two remaps if the driver's are absolute.
+  livox:
     <<: *ros
     profiles: [livox, fast-lio]
     image: ghcr.io/skymule-ai/mullet-drivers-livox:${DRIVERS_TAG:?set DRIVERS_TAG in .env}
     runtime: nvidia
     volumes:
       - ./config/livox:/config:ro
+    command:
+      - sh
+      - -c
+      - >-
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
+        exec ros2 run livox_ros_driver2 livox_ros_driver2_node --ros-args
+        -p xfer_format:=0 -p multi_topic:=0 -p data_src:=0 -p publish_freq:=10.0 -p output_data_type:=0
+        -p frame_id:=livox_frame -p user_config_path:=/config/MID360s_config.json
+        -r __ns:=/$$D -r /livox/lidar:=/$$D/livox/lidar -r /livox/imu:=/$$D/livox/imu
 
   # gPTP master on the LiDAR's interface. Without it the driver stamps each packet on arrival (late,
   # jittered); with it, at measurement. Server only, no CAP_SYS_TIME: chrony owns the Orin clock.
@@ -69,7 +82,10 @@ services:
   # ── Estimators (mullet-vio, mullet-lio) ──────────────────────────────────────
   # Both can run at once (COMPOSE_PROFILES=openvins,fast-lio) to compare them on the same flight;
   # the bridge forwards only ODOMETRY_TOPIC.
-  openvins:  # /uav0/openvins/odomimu
+  # /uav_N/openvins/odomimu. The node subscribe.launch.py starts, with its params, run directly so its
+  # TF (global -> imu -> cam*, fixed frame names) can be moved to /uav_N/tf. The Kalibr files name the
+  # camera and IMU topics as /${DRONE_ID}/...: filled in from a copy of config/ at start.
+  openvins:
     <<: *ros
     profiles: [openvins]
     image: ghcr.io/skymule-ai/mullet-vio-openvins:${VIO_TAG:?set VIO_TAG in .env}
@@ -83,15 +99,17 @@ services:
     volumes:
       - ./config/openvins:/config:ro
     command:
-      - ros2
-      - launch
-      - ov_msckf
-      - subscribe.launch.py
-      - config_path:=/config/estimator_config.yaml
-      - namespace:=uav0/openvins
-      - rviz_enable:=false
+      - bash
+      - -c
+      - >-
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
+        mkdir -p /tmp/ov && cp /config/* /tmp/ov/ && sed -i "s#\$${DRONE_ID}#$$D#g" /tmp/ov/*.yaml &&
+        exec ros2 run ov_msckf run_subscribe_msckf --ros-args -r __ns:=/$$D/openvins
+        -p verbosity:=INFO -p use_stereo:=true -p max_cameras:=2 -p save_total_state:=false
+        -p config_path:=/tmp/ov/estimator_config.yaml -r /tf:=/$$D/tf -r /tf_static:=/$$D/tf_static
 
-  fast_lio:  # /uav0/fast_lio/odometry
+  # /uav_N/fast_lio/odometry, its TF (camera_init -> body, fixed names) on /uav_N/tf.
+  fast_lio:
     <<: *ros
     profiles: [fast-lio]
     image: ghcr.io/skymule-ai/mullet-lio-fast-lio:${LIO_TAG:?set LIO_TAG in .env}
@@ -103,25 +121,17 @@ services:
     volumes:
       - ./config/fast-lio:/config:ro
     command:
-      - ros2
-      - run
-      - fast_lio
-      - fastlio_mapping
-      - --ros-args
-      - --params-file
-      - /config/mid360.yaml
-      - -r
-      - /Odometry:=/uav0/fast_lio/odometry
-      - -r
-      - /path:=/uav0/fast_lio/path
-      - -r
-      - /cloud_registered:=/uav0/fast_lio/cloud_registered
-      - -r
-      - /cloud_registered_body:=/uav0/fast_lio/cloud_registered_body
-      - -r
-      - /cloud_effected:=/uav0/fast_lio/cloud_effected
-      - -r
-      - /Laser_map:=/uav0/fast_lio/laser_map
+      - sh
+      - -c
+      - >-
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
+        exec ros2 run fast_lio fastlio_mapping --ros-args --params-file /config/mid360.yaml
+        -p common.lid_topic:=/$$D/livox/lidar -p common.imu_topic:=/$$D/livox/imu
+        -r /Odometry:=/$$D/fast_lio/odometry -r /path:=/$$D/fast_lio/path
+        -r /cloud_registered:=/$$D/fast_lio/cloud_registered
+        -r /cloud_registered_body:=/$$D/fast_lio/cloud_registered_body
+        -r /cloud_effected:=/$$D/fast_lio/cloud_effected -r /Laser_map:=/$$D/fast_lio/laser_map
+        -r /tf:=/$$D/tf -r /tf_static:=/$$D/tf_static
 
   # ── PX4 bridge, recording, ground-station view ───────────────────────────────
   # Runs with whichever estimator is up; ODOMETRY_TOPIC names its output. Shadow mode unless
@@ -137,9 +147,11 @@ services:
       - -c
       - >-
         source /opt/mullet_ws/install/setup.bash &&
-        exec ros2 run mullet_localization px4_ev_bridge --ros-args
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} && O=${ODOMETRY_TOPIC:-openvins/odomimu} &&
+        case $$O in /*) echo "ODOMETRY_TOPIC=$$O: relative, e.g. fast_lio/odometry (it is under /$$D)" >&2; exit 1;; esac &&
+        exec ros2 run mullet_localization px4_ev_bridge --ros-args -r __ns:=/$$D
         --params-file /config/${EV_BRIDGE_CONFIG:-ev_bridge.yaml} -p publish_to_px4:=${PUBLISH_TO_PX4:-false}
-        -r localization/odometry:=${ODOMETRY_TOPIC:-/uav0/openvins/odomimu}
+        -p px4_topic:=/$$D/fmu/in/vehicle_visual_odometry -r localization/odometry:=$$O
 
   # Pre-recording check: clock, disk, UDP buffer, PX4 (alive, aligned, GPS), the estimators and the bridge.
   # Exit 0 only when all green: `docker compose run --rm preflight && docker compose run -d --rm --name
@@ -172,19 +184,21 @@ services:
     # Sensors, estimator outputs (not OpenVINS's debug images nor FAST-LIO's clouds: ~4x the bag
     # size, and the disk load dropped infra frames; raw /livox/* is enough to replay FAST-LIO), the bridge's message in shadow or fused mode, PX4's
     # estimate (local, global, which aiding sources it fuses), IMU and raw GPS: what the offline
-    # evaluation replays every backend against.
+    # evaluation replays every backend against, and this drone's TF. Only this drone's topics: anchored
+    # to /$DRONE_ID, since the fleet shares the ROS domain.
     command:
       - bash
       - -c
       - >-
         source /opt/mullet_ws/install/setup.bash &&
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
         exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_localization
-        -e '/uav0/d435i/.*|/uav0/openvins/(odomimu|poseimu)|/uav0/fast_lio/(odometry|path)|/livox/.*|/localization/.*|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf|/tf_static'
+        -e "^/$$D/(d435i/.*|openvins/(odomimu|poseimu)|fast_lio/(odometry|path)|livox/.*|localization/.*|fmu/in/vehicle_visual_odometry|fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|tf|tf_static)\$$"
 
   # The key topics only (~280 MB/min instead of ~1.6 GB/min; the pattern is anchored: unanchored, it
   # also matched cloud_registered_body): both estimators, the bridge (shadow or
   # fused), PX4's estimate, raw GPS and IMU, FAST-LIO's registered scan (world frame, 0.5 m, viewable
-  # as is) and the raw /livox/lidar + /livox/imu (~240 MB/min, estimated): enough to replay FAST-LIO and
+  # as is) and the raw livox/lidar + livox/imu (~240 MB/min, estimated): enough to replay FAST-LIO and
   # to build the offline maps (pgo_map.py). No images, so it can't replay OpenVINS: use `record` for that.
   #   docker compose run -d --rm --name loc-record-lite record-lite ; docker kill -s INT loc-record-lite
   record-lite:
@@ -199,8 +213,9 @@ services:
       - -c
       - >-
         source /opt/mullet_ws/install/setup.bash &&
+        D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
         exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_lite
-        -e '^(/livox/(lidar|imu)|/uav0/fast_lio/(odometry|path|cloud_registered)|/uav0/openvins/(odomimu|poseimu)|/localization/vehicle_odometry|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf_static)$'
+        -e "^/$$D/(livox/(lidar|imu)|fast_lio/(odometry|path|cloud_registered)|openvins/(odomimu|poseimu)|localization/vehicle_odometry|fmu/in/vehicle_visual_odometry|fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|tf_static)\$$"
 
   foxglove:  # ws://<drone>:8765 for Lichtblick / Foxglove on the ground station
     <<: *ros

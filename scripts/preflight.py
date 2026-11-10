@@ -21,16 +21,21 @@ WINDOW = 6.0  # s
 NO_GPS = "--no-gps" in sys.argv[1:]
 PROFILES = set(os.environ.get("COMPOSE_PROFILES", "").split(","))
 FUSED = os.environ.get("PUBLISH_TO_PX4", "false").lower() == "true"
-EV_TOPIC = "/fmu/in/vehicle_visual_odometry" if FUSED else "/localization/vehicle_odometry"
+# Every topic is this drone's, under /$DRONE_ID (uav_N, from /etc/mullet/drone.env, the container's env_file).
+NS = "/" + os.environ["DRONE_ID"]
+FMU = f"{NS}/fmu"
+EV_TOPIC = f"{FMU}/in/vehicle_visual_odometry" if FUSED else f"{NS}/localization/vehicle_odometry"
+FAST_LIO, OPENVINS = f"{NS}/fast_lio/odometry", f"{NS}/openvins/odomimu"
+FLAGS, GPS = f"{FMU}/out/estimator_status_flags", f"{FMU}/out/vehicle_gps_position"
 FLIGHTS_MIN_GB = 20  # full `record` is ~1.6 GB/min
-RMEM_MIN = 8 * 1024 * 1024  # below this /livox/lidar loses datagrams and FAST-LIO lags ~2 s (README)
+RMEM_MIN = 8 * 1024 * 1024  # below this livox/lidar loses datagrams and FAST-LIO lags ~2 s (README)
 EV_LAG_MAX_MS = 100  # EKF2_DELAY_MAX is 200 ms
 
 rclpy.init()
 node = rclpy.create_node("preflight")
 msgs = defaultdict(list)  # topic -> [(receive time, msg)]
-subs = [("/fmu/out/estimator_status_flags", EstimatorStatusFlags), ("/fmu/out/vehicle_gps_position", SensorGps),
-        (EV_TOPIC, VehicleOdometry), ("/uav0/fast_lio/odometry", Odometry), ("/uav0/openvins/odomimu", Odometry)]
+subs = [(FLAGS, EstimatorStatusFlags), (GPS, SensorGps),
+        (EV_TOPIC, VehicleOdometry), (FAST_LIO, Odometry), (OPENVINS, Odometry)]
 for topic, cls in subs:
     node.create_subscription(cls, topic, lambda m, t=topic: msgs[t].append((time.monotonic(), m)),
                              qos_profile_sensor_data)
@@ -68,13 +73,13 @@ rmem = int(open("/proc/sys/net/core/rmem_default").read())
 check("UDP receive buffer", rmem >= RMEM_MIN, f"net.core.rmem_default {rmem} (need {RMEM_MIN})")
 
 # PX4
-flags = msgs["/fmu/out/estimator_status_flags"]
-check("PX4 publishing", bool(flags), f"estimator_status_flags {rate('/fmu/out/estimator_status_flags'):.1f} Hz"
+flags = msgs[FLAGS]
+check("PX4 publishing", bool(flags), f"estimator_status_flags {rate(FLAGS):.1f} Hz"
       if flags else "nothing from PX4: battery, Pixhawk USB/serial or the XRCE agent")
 f = flags[-1][1] if flags else None
 if f:
     check("EKF aligned", f.cs_tilt_align and f.cs_yaw_align, f"tilt {f.cs_tilt_align}, yaw {f.cs_yaw_align}")
-gps = msgs["/fmu/out/vehicle_gps_position"]
+gps = msgs[GPS]
 if NO_GPS:
     skip("GPS fix", "--no-gps")
     skip("GPS fused", "--no-gps")
@@ -85,7 +90,7 @@ else:
     check("GPS fused", bool(f and f.cs_gnss_pos), f"cs_gnss_pos {f.cs_gnss_pos}" if f else "no EKF flags")
 
 # Estimators
-for prof, topic, min_hz in (("fast-lio", "/uav0/fast_lio/odometry", 8), ("openvins", "/uav0/openvins/odomimu", 50)):
+for prof, topic, min_hz in (("fast-lio", FAST_LIO, 8), ("openvins", OPENVINS, 50)):
     if prof in PROFILES:
         check(f"{prof} odometry", rate(topic) >= min_hz, f"{topic} {rate(topic):.1f} Hz (need {min_hz})")
     else:
