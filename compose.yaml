@@ -125,7 +125,7 @@ services:
       - -c
       - >-
         D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
-        exec ros2 run fast_lio fastlio_mapping --ros-args --params-file /config/mid360.yaml
+        exec ros2 run fast_lio fastlio_mapping --ros-args -r __ns:=/$$D --params-file /config/mid360.yaml
         -p common.lid_topic:=/$$D/livox/lidar -p common.imu_topic:=/$$D/livox/imu
         -r /Odometry:=/$$D/fast_lio/odometry -r /path:=/$$D/fast_lio/path
         -r /cloud_registered:=/$$D/fast_lio/cloud_registered
