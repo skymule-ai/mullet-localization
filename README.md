@@ -21,11 +21,13 @@ realsense ──► /uav0/d435i/...                  livox ──► /livox/lida
 openvins ──► /uav0/openvins/odomimu            fast_lio ──► /uav0/fast_lio/odometry
      └──────────────┬────────────────────────────┘
 ev_bridge (ODOMETRY_TOPIC: one of them) ──► /localization/vehicle_odometry    shadow mode (default)
-                                        └─► /fmu/in/vehicle_visual_odometry  PUBLISH_TO_PX4=true
+                                        └─► /uav_N/fmu/in/vehicle_visual_odometry  PUBLISH_TO_PX4=true
 ```
 
 The bridge is the only `/fmu/in` writer outside mullet_core, and it writes only that topic.
-Mission frameworks still never publish `/fmu/in/*`.
+Mission frameworks still never publish `/fmu/in/*`. Every drone is namespaced: PX4's topics are
+`<PX4_PREFIX>/fmu/...` (`/uav_N`, from `/etc/mullet/drone.env`), and the bridge, `preflight` and both
+recorders use this drone's prefix only, since the fleet shares the ROS domain.
 
 ## On the drone
 
@@ -185,7 +187,7 @@ ssh orin 'cd ~/mullet-localization && sed -i "s#^ODOMETRY_TOPIC=.*#ODOMETRY_TOPI
 ssh orin 'cd ~/mullet-localization && docker compose run -d --rm --name loc-record-lite record-lite'
 ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor-vio'          # disarmed: EKF2_EV_CTRL 5, bridge sends to PX4
 ssh orin '~/mullet-px4/scripts/set-profile.py --show'                  # profile outdoor-vio, bridge publish_to_px4=True
-ssh orin 'cd ~/mullet-localization && docker compose exec ev_bridge bash -c "source /opt/mullet_ws/install/setup.bash && timeout 5 ros2 topic hz /fmu/in/vehicle_visual_odometry"'   # ~10 Hz
+ssh orin 'cd ~/mullet-localization && docker compose exec ev_bridge bash -c "source /opt/mullet_ws/install/setup.bash && timeout 5 ros2 topic hz $PX4_PREFIX/fmu/in/vehicle_visual_odometry"'   # ~10 Hz
 # ... fly ...
 ssh -t orin '~/mullet-px4/scripts/set-profile.py outdoor'              # back to shadow, disarmed
 ssh orin 'docker kill -s INT loc-record-lite'

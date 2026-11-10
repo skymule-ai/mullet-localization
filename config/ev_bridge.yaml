@@ -1,7 +1,7 @@
 # px4_ev_bridge. Shadow mode vs PX4 is PUBLISH_TO_PX4 in .env, not here.
 /**:
   ros__parameters:
-    px4_topic: /fmu/in/vehicle_visual_odometry
+    # px4_topic is set by compose.yaml: <PX4_PREFIX>/fmu/in/vehicle_visual_odometry (/etc/mullet/drone.env).
     # Pose of base_link (PX4's body frame, FLU here) in the running estimator's body frame (for
     # OpenVINS the D435i IMU, the "imu" child frame of odomimu). The lever arm is applied here, so
     # keep EKF2_EV_POS_X/Y/Z at 0.

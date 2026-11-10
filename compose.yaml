@@ -139,6 +139,7 @@ services:
         source /opt/mullet_ws/install/setup.bash &&
         exec ros2 run mullet_localization px4_ev_bridge --ros-args
         --params-file /config/${EV_BRIDGE_CONFIG:-ev_bridge.yaml} -p publish_to_px4:=${PUBLISH_TO_PX4:-false}
+        -p px4_topic:=$${PX4_PREFIX:?set PX4_PREFIX in /etc/mullet/drone.env}/fmu/in/vehicle_visual_odometry
         -r localization/odometry:=${ODOMETRY_TOPIC:-/uav0/openvins/odomimu}
 
   # Pre-recording check: clock, disk, UDP buffer, PX4 (alive, aligned, GPS), the estimators and the bridge.
@@ -172,14 +173,16 @@ services:
     # Sensors, estimator outputs (not OpenVINS's debug images nor FAST-LIO's clouds: ~4x the bag
     # size, and the disk load dropped infra frames; raw /livox/* is enough to replay FAST-LIO), the bridge's message in shadow or fused mode, PX4's
     # estimate (local, global, which aiding sources it fuses), IMU and raw GPS: what the offline
-    # evaluation replays every backend against.
+    # evaluation replays every backend against. PX4 topics are this drone's only (PX4_PREFIX, anchored):
+    # the fleet shares the ROS domain, and other drones' /uav_N/fmu/... would match too.
     command:
       - bash
       - -c
       - >-
         source /opt/mullet_ws/install/setup.bash &&
+        P=$${PX4_PREFIX:?set PX4_PREFIX in /etc/mullet/drone.env} &&
         exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_localization
-        -e '/uav0/d435i/.*|/uav0/openvins/(odomimu|poseimu)|/uav0/fast_lio/(odometry|path)|/livox/.*|/localization/.*|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf|/tf_static'
+        -e '/uav0/d435i/.*|/uav0/openvins/(odomimu|poseimu)|/uav0/fast_lio/(odometry|path)|/livox/.*|/localization/.*|^'"$$P"'/fmu/in/vehicle_visual_odometry|^'"$$P"'/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf|/tf_static'
 
   # The key topics only (~280 MB/min instead of ~1.6 GB/min; the pattern is anchored: unanchored, it
   # also matched cloud_registered_body): both estimators, the bridge (shadow or
@@ -199,8 +202,9 @@ services:
       - -c
       - >-
         source /opt/mullet_ws/install/setup.bash &&
+        P=$${PX4_PREFIX:?set PX4_PREFIX in /etc/mullet/drone.env} &&
         exec ros2 bag record -s mcap -o /flights/$$(date -u +%Y%m%dT%H%M%SZ)_lite
-        -e '^(/livox/(lidar|imu)|/uav0/fast_lio/(odometry|path|cloud_registered)|/uav0/openvins/(odomimu|poseimu)|/localization/vehicle_odometry|/fmu/in/vehicle_visual_odometry|/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf_static)$'
+        -e '^(/livox/(lidar|imu)|/uav0/fast_lio/(odometry|path|cloud_registered)|/uav0/openvins/(odomimu|poseimu)|/localization/vehicle_odometry|'"$$P"'/fmu/in/vehicle_visual_odometry|'"$$P"'/fmu/out/(vehicle_odometry|vehicle_local_position_v1|vehicle_global_position|vehicle_gps_position|estimator_status_flags|sensor_combined)|/tf_static)$'
 
   foxglove:  # ws://<drone>:8765 for Lichtblick / Foxglove on the ground station
     <<: *ros
