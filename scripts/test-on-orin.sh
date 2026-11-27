@@ -3,7 +3,9 @@
 # Run on the Orin from the repo root. Restarts the localization containers: never in flight.
 set -euo pipefail
 
-docker compose pull
+# Offline (field, mullnet has no internet): the pull fails and the images already on the Orin are used.
+# `up -d` pulls only images that are missing, so a tag never pulled still fails there, loudly.
+docker compose pull || echo "WARNING: pull failed (offline?): starting the images already on the Orin"
 docker compose up -d
 sleep 10  # driver and estimator start-up
 
