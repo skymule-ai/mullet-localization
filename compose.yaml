@@ -54,6 +54,7 @@ services:
 
   # /uav_N/livox/lidar (livox_ros_driver2/CustomMsg), /uav_N/livox/imu (acc in g). The image's own
   # command plus the namespace: __ns for relative names, the two remaps if the driver's are absolute.
+  # xfer_format 1 = CustomMsg, as in the image: FAST-LIO2 (lidar_type 1) subscribes to nothing else.
   livox:
     <<: *ros
     profiles: [livox, fast-lio]
@@ -67,7 +68,7 @@ services:
       - >-
         D=$${DRONE_ID:?set DRONE_ID in /etc/mullet/drone.env} &&
         exec ros2 run livox_ros_driver2 livox_ros_driver2_node --ros-args
-        -p xfer_format:=0 -p multi_topic:=0 -p data_src:=0 -p publish_freq:=10.0 -p output_data_type:=0
+        -p xfer_format:=1 -p multi_topic:=0 -p data_src:=0 -p publish_freq:=10.0 -p output_data_type:=0
         -p frame_id:=livox_frame -p user_config_path:=/config/MID360s_config.json
         -r __ns:=/$$D -r /livox/lidar:=/$$D/livox/lidar -r /livox/imu:=/$$D/livox/imu
 
